@@ -1,2 +1,2 @@
 [workspace]
-members = ["vst-js", "xtask"]
+members = ["vst_js", "xtask"]
