@@ -1,8 +1,9 @@
 use atomic_float::AtomicF32;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets, EguiState};
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+mod runtime;
 
 const PEAK_METER_DECAY_MS: f64 = 150.0;
 
@@ -13,6 +14,7 @@ pub struct Gain {
     sample_rate: f32,
     time: u64,
     midi_input: HashMap<(u8, u8), (u64, f32, f32)>,
+    runtime: Box<dyn runtime::runtime::ScriptRuntime + Send>,
 }
 
 #[derive(Params)]
@@ -26,6 +28,13 @@ pub struct GainParams {
 
 impl Default for Gain {
     fn default() -> Self {
+        let runtime: Box<dyn runtime::runtime::ScriptRuntime + Send> = Box::new(
+            runtime::js_sync::JsRuntimeBuilder::new()
+                .on_log(std::sync::Arc::new(|log| {
+                    println!("{}", log);
+                }))
+                .build(),
+        );
         Self {
             params: Arc::new(GainParams::default()),
 
@@ -34,6 +43,7 @@ impl Default for Gain {
             peak_meter_decay_weight: 1.0,
             peak_meter: Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
             midi_input: HashMap::new(),
+            runtime,
         }
     }
 }
@@ -132,6 +142,24 @@ impl Plugin for Gain {
             .powf((buffer_config.sample_rate as f64 * PEAK_METER_DECAY_MS / 1000.0).recip())
             as f32;
 
+        if let Err(e) = (&mut *self.runtime).compile(
+            r#"
+                console.log("hello world");
+                let sum = 0;
+				let count = 0;
+                (input, output) => {
+                    input.forEach((v, index) => {
+                        output[index] = Math.sin(count / 44100 * 2 * Math.PI * 440);
+						count += 1;
+                    });
+                    return 100;
+                };
+            "#,
+        ) {
+            println!("compile error: {}", e);
+            return false;
+        };
+
         true
     }
 
@@ -144,9 +172,29 @@ impl Plugin for Gain {
         &mut self,
         buffer: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
-        context: &mut impl ProcessContext<Self>,
+        _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut next_event = context.next_event();
+        //let mut next_event = context.next_event();
+
+        let input = vec![0f32; buffer.as_slice()[0].len()];
+        if let Err(e) = (&mut *self.runtime).process(&input, buffer.as_slice()[0]) {
+            println!("process error: {}", e);
+        }
+
+        /*
+        //let input = buffer.iter_samples()[0].copied().collect::<Vec<f32>>();
+        let mut output = vec![0f32; input.len()];
+        if let Err(e) = (&mut *self.runtime).process(&input, &mut output) {
+            println!("process error: {}", e);
+            return false;
+        }
+        buffer
+            .iter_samples_mut()
+            .zip(output.iter())
+            .for_each(|(s, v)| *s = *v);
+        */
+
+        /*
         for (sample_id, channel_samples) in buffer.iter_samples().enumerate() {
             self.time += 1;
             while let Some(event) = next_event {
@@ -155,17 +203,33 @@ impl Plugin for Gain {
                 }
 
                 match event {
-                    NoteEvent::NoteOn { channel, note, velocity, .. } => {
-                        self.midi_input.insert((channel, note), (self.time, velocity, 0.0));
+                    NoteEvent::NoteOn {
+                        channel,
+                        note,
+                        velocity,
+                        ..
+                    } => {
+                        self.midi_input
+                            .insert((channel, note), (self.time, velocity, 0.0));
                     }
                     NoteEvent::NoteOff { channel, note, .. } => {
                         self.midi_input.remove(&(channel, note));
                     }
-                    _ => ()
+                    _ => (),
                 }
 
                 next_event = context.next_event();
             }
+
+            //let input = vec![0f32, 1f32, 2f32, 5f32];
+            //let mut output = vec![0f32; 4];
+            if let Err(e) = (&mut *self.runtime).process(&input, &mut output) {
+                println!("process error: {}", e);
+                return false;
+            }
+            //for (i, v) in output.iter().enumerate() {
+            //    println!("output[{}]: {}", i, v);
+            //}
 
             let mut wave = 0.0;
             for ((_, note), (time, velocity, _)) in self.midi_input.iter() {
@@ -197,6 +261,7 @@ impl Plugin for Gain {
                     .store(new_peak_meter, std::sync::atomic::Ordering::Relaxed)
             }
         }
+        */
 
         ProcessStatus::Normal
     }

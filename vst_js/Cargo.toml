@@ -10,3 +10,5 @@ crate-type = ["cdylib", "lib"]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", tag = "spectral-compressor-0.4.3", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", tag = "spectral-compressor-0.4.3" }
 atomic_float = "0.1"
+thiserror = "1.0.59"
+v8 = { git = "https://github.com/denoland/rusty_v8.git", tag = "v0.82.0" }
