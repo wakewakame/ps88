@@ -2,7 +2,7 @@ use atomic_float::AtomicF32;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets, EguiState};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 mod runtime;
 
 const PEAK_METER_DECAY_MS: f64 = 150.0;
@@ -14,7 +14,8 @@ pub struct Gain {
     sample_rate: f32,
     time: u64,
     midi_input: HashMap<(u8, u8), (u64, f32, f32)>,
-    runtime: Box<dyn runtime::runtime::ScriptRuntime + Send>,
+    runtime: Box<dyn runtime::runtime::ScriptRuntime + Sync + Send>,
+    code: Arc<Mutex<String>>,
 }
 
 #[derive(Params)]
@@ -28,7 +29,7 @@ pub struct GainParams {
 
 impl Default for Gain {
     fn default() -> Self {
-        let runtime: Box<dyn runtime::runtime::ScriptRuntime + Send> = Box::new(
+        let runtime: Box<dyn runtime::runtime::ScriptRuntime + Sync + Send> = Box::new(
             runtime::js_sync::JsRuntimeBuilder::new()
                 .on_log(std::sync::Arc::new(|log| {
                     println!("{}", log);
@@ -44,6 +45,7 @@ impl Default for Gain {
             peak_meter: Arc::new(AtomicF32::new(util::MINUS_INFINITY_DB)),
             midi_input: HashMap::new(),
             runtime,
+            code: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -100,9 +102,10 @@ impl Plugin for Gain {
         self.params.clone()
     }
 
-    fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let peak_meter = self.peak_meter.clone();
+        let code = self.code.clone();
         create_egui_editor(
             self.params.editor_state.clone(),
             (),
@@ -126,6 +129,18 @@ impl Plugin for Gain {
                         egui::widgets::ProgressBar::new(peak_meter_normalized)
                             .text(peak_meter_text),
                     );
+
+                    {
+                        let mut code = code.lock().unwrap();
+                        ui.add(
+                            egui::TextEdit::multiline(&mut *code)
+                                .font(egui::TextStyle::Monospace) // for cursor height
+                                .code_editor()
+                                .desired_rows(10)
+                                .lock_focus(true)
+                                .desired_width(f32::INFINITY),
+                        );
+                    }
                 });
             },
         )
@@ -149,7 +164,7 @@ impl Plugin for Gain {
 				let count = 0;
                 (input, output) => {
                     input.forEach((v, index) => {
-                        output[index] = Math.sin(count / 44100 * 2 * Math.PI * 440);
+                        output[index] = Math.sin(count / 44100 * 2 * Math.PI * 440) * 0.01;
 						count += 1;
                     });
                     return 100;
