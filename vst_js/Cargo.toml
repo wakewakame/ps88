@@ -2,6 +2,7 @@
 name = "vst_js"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/wakewakame/vst-js"
 
 [lib]
 crate-type = ["cdylib", "lib"]
