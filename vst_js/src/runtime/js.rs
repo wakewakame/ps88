@@ -18,9 +18,9 @@ pub struct JsRuntime {
 struct JsRuntimeContext {
     context: v8::Global<v8::Context>,
     _inspector: Option<Rc<RefCell<InspectorClient>>>,
-    input: v8::Global<v8::ArrayBuffer>,
-    output: v8::Global<v8::ArrayBuffer>,
-    process_func: v8::Global<v8::Function>,
+    audio: v8::Global<v8::ArrayBuffer>,
+    audio_func: v8::Global<v8::Function>,
+    gui_func: v8::Global<v8::Function>,
 }
 
 #[derive(Debug, Error)]
@@ -29,8 +29,8 @@ pub enum JsRuntimeError {
     CompileError(String),
     #[error("failed to process: `{0}`")]
     ProcessError(String),
-    #[error("process function is not compiled")]
-    NoProcessFunction,
+    #[error("not compiled")]
+    NotCompiled,
     #[error("unexpected error: {0}")]
     UnexpectedError(String),
 }
@@ -84,130 +84,132 @@ impl runtime::ScriptRuntime for JsRuntime {
             None
         };
 
-        let (input, output) = {
+        let audio = {
             let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context);
-            let input = v8::ArrayBuffer::new(scope, 0);
-            let input = v8::Global::new(scope, input);
-            let output = v8::ArrayBuffer::new(scope, 0);
-            let output = v8::Global::new(scope, output);
-            (input, output)
+            let audio = v8::ArrayBuffer::new(scope, 0);
+            let audio = v8::Global::new(scope, audio);
+            audio
         };
 
-        let process_func = {
+        let (audio_func, gui_func) = {
             let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context);
-            let code = match v8::String::new(scope, code) {
-                Some(code) => code,
-                None => {
-                    return Err(
-                        JsRuntimeError::UnexpectedError("failed to allocate string".into()).into(),
-                    )
-                }
+            let Some(code) = v8::String::new(scope, code) else {
+                return Err(
+                    JsRuntimeError::UnexpectedError("failed to allocate string".into()).into(),
+                );
             };
-            let process_func = {
+            let funcs = {
                 let mut try_catch = v8::TryCatch::new(scope);
-                let script = match v8::Script::compile(&mut try_catch, code, None) {
-                    Some(script) => script,
-                    None => {
-                        return Err(
-                            JsRuntimeError::CompileError(report_exceptions(try_catch)).into()
-                        );
-                    }
+                let Some(script) = v8::Script::compile(&mut try_catch, code, None) else {
+                    return Err(JsRuntimeError::CompileError(report_exceptions(try_catch)).into());
                 };
-                let process_func = match script.run(&mut try_catch) {
-                    Some(process_func) => process_func,
-                    None => {
-                        return Err(
-                            JsRuntimeError::CompileError(report_exceptions(try_catch)).into()
-                        );
-                    }
+                if script.run(&mut try_catch).is_none() {
+                    return Err(JsRuntimeError::CompileError(report_exceptions(try_catch)).into());
                 };
-                let process_func = match v8::Local::<v8::Function>::try_from(process_func) {
-                    Ok(process_func) => process_func,
-                    Err(_e) => {
-                        return Err(JsRuntimeError::CompileError(
-                            "returned value may not be a function".to_string(),
-                        )
-                        .into())
-                    }
-                };
-                process_func
+
+                const EXPECTED_FUNCTION_NAMES: [&str; 2] = ["audio", "gui"];
+                let expected_functions: runtime::Result<Vec<v8::Local<v8::Function>>> =
+                    EXPECTED_FUNCTION_NAMES
+                        .iter()
+                        .map(|name| {
+                            let mut try_catch = v8::TryCatch::new(&mut try_catch);
+                            let Some(code) = v8::String::new(&mut try_catch, name) else {
+                                return Err(JsRuntimeError::CompileError(format!(
+                                    "failed to allocate string: '{}'",
+                                    name
+                                ))
+                                .into());
+                            };
+                            let Some(script) = v8::Script::compile(&mut try_catch, code, None)
+                            else {
+                                return Err(JsRuntimeError::CompileError(report_exceptions(
+                                    try_catch,
+                                ))
+                                .into());
+                            };
+                            let Some(variable) = script.run(&mut try_catch) else {
+                                return Err(JsRuntimeError::CompileError(report_exceptions(
+                                    try_catch,
+                                ))
+                                .into());
+                            };
+                            if variable.is_undefined() {
+                                return Err(JsRuntimeError::CompileError(format!(
+                                    "'{}' function is not defined",
+                                    name,
+                                ))
+                                .into());
+                            }
+                            let Ok(func) = v8::Local::<v8::Function>::try_from(variable) else {
+                                return Err(JsRuntimeError::CompileError(format!(
+                                    "'{}' is not a function",
+                                    name,
+                                ))
+                                .into());
+                            };
+                            return Ok(func);
+                        })
+                        .collect();
+                expected_functions
+            }?;
+            let funcs: Vec<v8::Global<v8::Function>> =
+                funcs.iter().map(|f| v8::Global::new(scope, *f)).collect();
+            let Some([audio_func, gui_func]) = funcs.get(0..2) else {
+                return Err(
+                    JsRuntimeError::UnexpectedError("failed to get functions".into()).into(),
+                );
             };
-            let process_func = v8::Global::new(scope, process_func);
-            process_func
+            (audio_func.clone(), gui_func.clone())
         };
 
         let runtime_context = Rc::new(RefCell::new(JsRuntimeContext {
             context,
             _inspector: inspector,
-            input,
-            output,
-            process_func,
+            audio,
+            audio_func,
+            gui_func,
         }));
         self.isolate.set_slot(runtime_context);
 
         Ok(())
     }
 
-    fn process(&mut self, input: &[f32], output: &mut [f32]) -> runtime::Result<()> {
-        let runtime_context = match self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() {
-            Some(runtime_context) => runtime_context,
-            None => return Err(JsRuntimeError::NoProcessFunction.into()),
+    fn audio(&mut self, audio: &mut [f32]) -> runtime::Result<()> {
+        let Some(runtime_context) = self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() else {
+            return Err(JsRuntimeError::NotCompiled.into());
         };
         let context = runtime_context.clone();
-        let process_func = context.borrow_mut().process_func.clone();
+        let audio_func = context.borrow_mut().audio_func.clone();
         {
             let context = &mut *context.borrow_mut();
             let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context.context);
-            if v8::Local::new(scope, &context.input).byte_length() != input.len() * size_of::<f32>()
+            if v8::Local::new(scope, &context.audio).byte_length() != audio.len() * size_of::<f32>()
             {
-                let array = v8::ArrayBuffer::new(scope, input.len() * size_of::<f32>());
-                context.input = v8::Global::new(scope, array);
+                let array = v8::ArrayBuffer::new(scope, audio.len() * size_of::<f32>());
+                context.audio = v8::Global::new(scope, array);
             }
-            if v8::Local::new(scope, &context.output).byte_length()
-                != output.len() * size_of::<f32>()
-            {
-                let array = v8::ArrayBuffer::new(scope, output.len() * size_of::<f32>());
-                context.output = v8::Global::new(scope, array);
-            }
-            let process_func = v8::Local::new(scope, process_func);
-
-            let input_arr = v8::Local::new(scope, &context.input);
-            let output_arr = v8::Local::new(scope, &context.output);
-
-            let backing_store = input_arr.get_backing_store();
+            let audio_arr = v8::Local::new(scope, &context.audio);
+            let backing_store = audio_arr.get_backing_store();
             if let Some(pointer) = backing_store.data() {
                 unsafe {
-                    std::ptr::copy(input.as_ptr(), pointer.as_ptr() as *mut f32, input.len());
+                    std::ptr::copy(audio.as_ptr(), pointer.as_ptr() as *mut f32, audio.len());
                 }
             }
-
-            let input_array_t = match v8::Float32Array::new(scope, input_arr, 0, input.len()) {
-                Some(input_array_t) => input_array_t,
-                None => {
-                    return Err(JsRuntimeError::UnexpectedError(
-                        "failed to create input array".into(),
-                    )
-                    .into())
-                }
+            let Some(audio_array_t) = v8::Float32Array::new(scope, audio_arr, 0, audio.len())
+            else {
+                return Err(
+                    JsRuntimeError::UnexpectedError("failed to create audio array".into()).into(),
+                );
             };
-            let output_array_t = match v8::Float32Array::new(scope, output_arr, 0, output.len()) {
-                Some(output_array_t) => output_array_t,
-                None => {
-                    return Err(JsRuntimeError::UnexpectedError(
-                        "failed to create output array".into(),
-                    )
-                    .into())
-                }
-            };
+            let ctx = v8::Object::new(scope);
+            let key = v8::String::new(scope, "audio").unwrap();
+            ctx.set(scope, key.into(), audio_array_t.into());
 
+            let audio_func = v8::Local::new(scope, audio_func);
             let this = v8::undefined(scope).into();
             let _result = {
                 let mut try_catch = v8::TryCatch::new(scope);
-                match process_func.call(
-                    &mut try_catch,
-                    this,
-                    &[input_array_t.into(), output_array_t.into()],
-                ) {
+                match audio_func.call(&mut try_catch, this, &[ctx.into()]) {
                     Some(result) => result,
                     None => {
                         return Err(
@@ -217,13 +219,13 @@ impl runtime::ScriptRuntime for JsRuntime {
                 }
             };
 
-            let backing_store = output_arr.get_backing_store();
+            let backing_store = audio_arr.get_backing_store();
             if let Some(pointer) = backing_store.data() {
                 unsafe {
                     std::ptr::copy(
                         pointer.as_ptr() as *const f32,
-                        output.as_mut_ptr(),
-                        input.len(),
+                        audio.as_mut_ptr(),
+                        audio.len(),
                     );
                 }
             }
@@ -382,7 +384,7 @@ mod tests {
     use crate::runtime::runtime;
 
     #[test]
-    fn process() {
+    fn audio() {
         // console.log の出力結果保存用
         let logs = Rc::new(RefCell::<Vec<String>>::new(vec![]));
         let logs_clone = logs.clone();
@@ -399,29 +401,32 @@ mod tests {
 
         // compile が 3 回行えることを確認
         for i in 0..3 {
-            let result = runtime.compile(
-                r#"
+            runtime
+                .compile(
+                    r#"
+                    "use strict";
                     console.log("init: ${i}");
                     let count = 0;
-                    (input, output) => {
+                    const audio = (ctx) => {
                         console.log(`init: ${i}, count: ${count++}`);
-                        input.forEach((v, i) => {{ output[i] = v * 2.0; }});
+                        for (let i = 0; i < ctx.audio.length; i++) {
+                            ctx.audio[i] = ctx.audio[i] * 2.0;
+                        }
                     };
+                    const gui = () => {};
                 "#
-                .replace("${i}", &i.to_string())
-                .as_str(),
-            );
-            assert!(result.is_ok());
+                    .replace("${i}", &i.to_string())
+                    .as_str(),
+                )
+                .unwrap();
 
-            // process の実行が 3 回行えることを確認
+            // audio の実行が 3 回行えることを確認
             for _ in 0..3 {
                 // 実行ごとに入力配列の数を変える
-                let input: Vec<f32> = (0..(i + 1) * 100).map(|x| x as f32).collect();
-                let mut output = input.clone();
-                let result = runtime.process(&input, &mut output);
-                assert!(result.is_ok());
+                let mut audio: Vec<f32> = (0..(i + 1) * 100).map(|x| x as f32).collect();
+                runtime.audio(&mut audio).unwrap();
                 assert_eq!(
-                    output,
+                    audio,
                     (0..(i + 1) * 100)
                         .map(|x| (x * 2) as f32)
                         .collect::<Vec<f32>>()
@@ -472,15 +477,16 @@ mod tests {
         // 処理中に例外
         let result = runtime.compile(
             r#"
-                (input, output) => {
+                "use strict";
+                const audio = (_) => {
                     throw new Error('aaa');
                 };
+                const gui = () => {};
             "#,
         );
         assert!(result.is_ok());
-        let input: Vec<f32> = (0..100).map(|x| x as f32).collect();
-        let mut output = input.clone();
-        let result = runtime.process(&input, &mut output);
+        let mut audio: Vec<f32> = (0..100).map(|x| x as f32).collect();
+        let result = runtime.audio(&mut audio);
         assert!(result.is_err());
     }
 }

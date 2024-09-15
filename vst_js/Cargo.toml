@@ -13,3 +13,7 @@ nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "cd
 atomic_float = "0.1"
 thiserror = "1.0.59"
 v8 = { git = "https://github.com/denoland/rusty_v8.git", tag = "v0.91.1" }
+rfd = "0.14.1"
+mockall = "0.13.0"
+notify = "6.1.1"
+log = "0.4.22"

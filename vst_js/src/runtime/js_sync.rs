@@ -12,9 +12,8 @@ pub struct JsRuntime {
 
 enum Message {
     Compile(String, std::sync::mpsc::Sender<runtime::Result<()>>),
-    Process(
+    Audio(
         Vec<f32>,
-        usize,
         std::sync::mpsc::Sender<(runtime::Result<()>, Vec<f32>)>,
     ),
 }
@@ -42,11 +41,10 @@ impl JsRuntimeBuilder {
                         let result = runtime.compile(&code);
                         let _ = output_tx.send(result);
                     }
-                    Message::Process(input, output_len, output_tx) => {
-                        // TODO: unsafe を使えば input / output は参照渡しで読み書きできるかもしれない
-                        let mut output = vec![0f32; output_len];
-                        let result = runtime.process(&input, &mut output);
-                        let _ = output_tx.send((result, output));
+                    Message::Audio(mut audio, output_tx) => {
+                        // TODO: unsafe を使えば audio は参照渡しで読み書きできるかもしれない
+                        let result = runtime.audio(&mut audio);
+                        let _ = output_tx.send((result, audio));
                     }
                 }
             }
@@ -74,15 +72,14 @@ impl runtime::ScriptRuntime for JsRuntime {
         }
     }
 
-    fn process(&mut self, input: &[f32], output: &mut [f32]) -> runtime::Result<()> {
+    fn audio(&mut self, audio: &mut [f32]) -> runtime::Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
-        let input = input.to_vec();
         self.message
-            .send(Message::Process(input, output.len(), tx))
+            .send(Message::Audio(audio.to_vec(), tx))
             .map_err(|_| js::JsRuntimeError::UnexpectedError("failed to send".into()))?;
         match rx.recv() {
             Ok((result, out)) => {
-                output.iter_mut().zip(out.iter()).for_each(|(o, v)| *o = *v);
+                audio.iter_mut().zip(out.iter()).for_each(|(o, v)| *o = *v);
                 result
             }
             _ => Err(js::JsRuntimeError::UnexpectedError("failed to receive".into()).into()),
@@ -96,7 +93,7 @@ mod tests {
     use crate::runtime::runtime;
 
     #[test]
-    fn process() {
+    fn audio() {
         // console.log の出力結果保存用
         let logs = std::sync::Arc::new(std::sync::Mutex::<Vec<String>>::new(vec![]));
         let logs_clone = logs.clone();
@@ -117,29 +114,34 @@ mod tests {
         let runtime2 = runtime.clone();
         let th = std::thread::spawn(move || {
             for i in 0..3 {
-                let result = runtime2.lock().unwrap().compile(
-                    r#"
+                runtime2
+                    .lock()
+                    .unwrap()
+                    .compile(
+                        r#"
+                    "use strict";
                     console.log("init: ${i}");
                     let count = 0;
-                    (input, output) => {
+                    const audio = (ctx) => {
                         console.log(`init: ${i}, count: ${count++}`);
-                        input.forEach((v, i) => {{ output[i] = v * 2.0; }});
+                        for (let i = 0; i < ctx.audio.length; i++) {
+                            ctx.audio[i] = ctx.audio[i] * 2.0;
+                        }
                     };
+                    const gui = () => {};
                 "#
-                    .replace("${i}", &i.to_string())
-                    .as_str(),
-                );
-                assert!(result.is_ok());
+                        .replace("${i}", &i.to_string())
+                        .as_str(),
+                    )
+                    .unwrap();
 
-                // process の実行が 3 回行えることを確認
+                // audio の実行が 3 回行えることを確認
                 for _ in 0..3 {
                     // 実行ごとに入力配列の数を変える
-                    let input: Vec<f32> = (0..(i + 1) * 100).map(|x| x as f32).collect();
-                    let mut output = input.clone();
-                    let result = runtime2.lock().unwrap().process(&input, &mut output);
-                    assert!(result.is_ok());
+                    let mut audio: Vec<f32> = (0..(i + 1) * 100).map(|x| x as f32).collect();
+                    runtime2.lock().unwrap().audio(&mut audio).unwrap();
                     assert_eq!(
-                        output,
+                        audio,
                         (0..(i + 1) * 100)
                             .map(|x| (x * 2) as f32)
                             .collect::<Vec<f32>>()
