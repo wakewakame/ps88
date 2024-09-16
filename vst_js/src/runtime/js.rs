@@ -174,7 +174,13 @@ impl runtime::ScriptRuntime for JsRuntime {
         Ok(())
     }
 
-    fn audio(&mut self, audio: &mut [f32]) -> runtime::Result<()> {
+    fn audio(
+        &mut self,
+        audio: &mut [f32],
+        ch: usize,
+        sampling_rate: f32,
+        midi: &[u8],
+    ) -> runtime::Result<()> {
         let Some(runtime_context) = self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() else {
             return Err(JsRuntimeError::NotCompiled.into());
         };
@@ -189,10 +195,17 @@ impl runtime::ScriptRuntime for JsRuntime {
                 context.audio = v8::Global::new(scope, array);
             }
             let audio_arr = v8::Local::new(scope, &context.audio);
-            let backing_store = audio_arr.get_backing_store();
-            if let Some(pointer) = backing_store.data() {
+            let midi_arr = v8::ArrayBuffer::new(scope, midi.len() * size_of::<f32>());
+            let audio_backing_store = audio_arr.get_backing_store();
+            let midi_backing_store = midi_arr.get_backing_store();
+            if let Some(pointer) = audio_backing_store.data() {
                 unsafe {
                     std::ptr::copy(audio.as_ptr(), pointer.as_ptr() as *mut f32, audio.len());
+                }
+            }
+            if let Some(pointer) = midi_backing_store.data() {
+                unsafe {
+                    std::ptr::copy(midi.as_ptr(), pointer.as_ptr() as *mut u8, midi.len());
                 }
             }
             let Some(audio_array_t) = v8::Float32Array::new(scope, audio_arr, 0, audio.len())
@@ -201,9 +214,22 @@ impl runtime::ScriptRuntime for JsRuntime {
                     JsRuntimeError::UnexpectedError("failed to create audio array".into()).into(),
                 );
             };
+            let Some(midi_array_t) = v8::Uint8Array::new(scope, midi_arr, 0, midi.len()) else {
+                return Err(
+                    JsRuntimeError::UnexpectedError("failed to create midi array".into()).into(),
+                );
+            };
             let ctx = v8::Object::new(scope);
-            let key = v8::String::new(scope, "audio").unwrap();
-            ctx.set(scope, key.into(), audio_array_t.into());
+            let audio_key = v8::String::new(scope, "audio").unwrap();
+            let ch_key = v8::String::new(scope, "ch").unwrap();
+            let sampling_rate_key = v8::String::new(scope, "sampling_rate").unwrap();
+            let midi_key = v8::String::new(scope, "midi").unwrap();
+            let ch = v8::Integer::new(scope, ch as i32);
+            let sampling_rate = v8::Number::new(scope, sampling_rate as f64);
+            ctx.set(scope, audio_key.into(), audio_array_t.into());
+            ctx.set(scope, ch_key.into(), ch.into());
+            ctx.set(scope, sampling_rate_key.into(), sampling_rate.into());
+            ctx.set(scope, midi_key.into(), midi_array_t.into());
 
             let audio_func = v8::Local::new(scope, audio_func);
             let this = v8::undefined(scope).into();
@@ -219,8 +245,8 @@ impl runtime::ScriptRuntime for JsRuntime {
                 }
             };
 
-            let backing_store = audio_arr.get_backing_store();
-            if let Some(pointer) = backing_store.data() {
+            let audio_backing_store = audio_arr.get_backing_store();
+            if let Some(pointer) = audio_backing_store.data() {
                 unsafe {
                     std::ptr::copy(
                         pointer.as_ptr() as *const f32,
@@ -424,7 +450,7 @@ mod tests {
             for _ in 0..3 {
                 // 実行ごとに入力配列の数を変える
                 let mut audio: Vec<f32> = (0..(i + 1) * 100).map(|x| x as f32).collect();
-                runtime.audio(&mut audio).unwrap();
+                runtime.audio(&mut audio, 2, 48000.0, &[]).unwrap();
                 assert_eq!(
                     audio,
                     (0..(i + 1) * 100)
@@ -486,7 +512,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let mut audio: Vec<f32> = (0..100).map(|x| x as f32).collect();
-        let result = runtime.audio(&mut audio);
+        let result = runtime.audio(&mut audio, 2, 48000.0, &[]);
         assert!(result.is_err());
     }
 }

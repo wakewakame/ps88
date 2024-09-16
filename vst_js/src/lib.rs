@@ -109,7 +109,7 @@ impl Plugin for VstJs {
             });
 
         // イベントを取得
-        let mut midi_input = Vec::<[u8; 7]>::new();
+        let mut midi = Vec::<u8>::new();
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn {
@@ -119,12 +119,12 @@ impl Plugin for VstJs {
                     velocity,
                     ..
                 } => {
-                    let mut midi = [0u8; 7];
-                    midi[0..4].copy_from_slice(&timing.to_be_bytes());
-                    midi[4] = 0x90 | channel;
-                    midi[5] = note;
-                    midi[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
-                    midi_input.push(midi);
+                    let mut e = [0u8; 7];
+                    e[0..4].copy_from_slice(&timing.to_be_bytes());
+                    e[4] = 0x90 | channel;
+                    e[5] = note;
+                    e[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
+                    midi.extend_from_slice(&e);
                 }
                 NoteEvent::NoteOff {
                     timing,
@@ -133,23 +133,23 @@ impl Plugin for VstJs {
                     velocity,
                     ..
                 } => {
-                    let mut midi = [0u8; 7];
-                    midi[0..4].copy_from_slice(&timing.to_be_bytes());
-                    midi[4] = 0x80 | channel;
-                    midi[5] = note;
-                    midi[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
-                    midi_input.push(midi);
+                    let mut e = [0u8; 7];
+                    e[0..4].copy_from_slice(&timing.to_be_bytes());
+                    e[4] = 0x80 | channel;
+                    e[5] = note;
+                    e[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
+                    midi.extend_from_slice(&e);
                 }
                 // TODO: 他のイベントも処理する
                 _ => {}
             };
         }
-        let mut midi_output = Vec::<[u8; 7]>::new();
 
         // スクリプトを実行
         {
             let mut runtime = self.runtime.lock().unwrap();
-            if let Err(e) = (&mut runtime).audio(&mut audio) {
+            let sampling_rate = self.sample_rate;
+            if let Err(e) = (&mut runtime).audio(&mut audio, slice.len(), sampling_rate, &midi) {
                 println!("process error: {}", e);
             }
         }
@@ -161,34 +161,6 @@ impl Plugin for VstJs {
             channel.copy_from_slice(&audio[offset..offset + len]);
             offset + len
         });
-
-        // イベントを送信
-        for midi in midi_output {
-            match midi[4] & 0xf0 {
-                0x90 => {
-                    context.send_event(NoteEvent::NoteOn {
-                        timing: u32::from_be_bytes(midi[0..4].try_into().unwrap()),
-                        voice_id: None,
-                        channel: midi[4] & 0x0f,
-                        note: midi[5],
-                        velocity: midi[6] as f32 / 127.0,
-                    });
-                }
-                0x80 => {
-                    context.send_event(NoteEvent::NoteOff {
-                        timing: u32::from_be_bytes(midi[0..4].try_into().unwrap()),
-                        voice_id: None,
-                        channel: midi[4] & 0x0f,
-                        note: midi[5],
-                        velocity: midi[6] as f32 / 127.0,
-                    });
-                }
-                // TODO: 他のイベントも処理する
-                _ => {}
-            }
-
-            //context.send_event(event);
-        }
 
         ProcessStatus::Normal
     }

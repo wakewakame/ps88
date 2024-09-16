@@ -22,7 +22,7 @@ const square = (rad) => {
  *    ctx.ch=2 の場合、信号 は [ L, L, L, ..., R, R, R, ... ] のように並んでいる。
  * @param {number} ctx.ch - ctx.audio のチャンネル数。
  * @param {number} ctx.sampling_rate - ctx.audio のサンプリングレート。
- * @param {Uint8Array} ctx.midi - MIDI 入出力
+ * @param {Uint8Array} ctx.midi - MIDI 入力
  *    1 イベントあたり 7 byte で、以下のような構造になっている。
  *      [ event1(7 byte), event2(7 byte), event3(7 byte), ... ]
  *    event の構造:
@@ -31,20 +31,49 @@ const square = (rad) => {
  *                下位 4 bit: チャンネル番号 (0-15)
  *        5 byte: ノート番号 (0-127)
  *        6 byte: ベロシティ (1-127)
- *    また、以下のように上書きすることで MIDI 出力を書き換えることも可能。
- *      ctx.midi = new Uint8Array([0, 0, 0, 0, 0x90, 69, 127])
  */
+const keys = new Map();
 const audio = (ctx) => {
-  const half = ctx.audio.length / 2;
+  const half = ctx.audio.length / ctx.ch;
+  if (ctx.midi.length > 0) {
+    for (let i = 0; i < ctx.midi.length; i += 7) {
+      const time = (ctx.midi[i] << 24) | (ctx.midi[i + 1] << 16) | (ctx.midi[i + 2] << 8) | ctx.midi[i + 3];
+      const type = ctx.midi[i + 4] >> 4;
+      //const channel = ctx.midi[i + 4] & 0x0f;
+      const note = ctx.midi[i + 5];
+      const velocity = ctx.midi[i + 6];
+      if (type === 0x9) {
+        keys.set(note, [time, velocity, 0]);
+      } else if (type === 0x8) {
+        //keys.delete(note);
+      }
+    }
+  }
   for (let index = 0; index < half; index++) {
     let val = 0.0;
-    val = Math.sin(count / 44100 * 2 * Math.PI * 440) * 0.02;
-    //val = sawtooth(count / 44100 * 2 * Math.PI * 440) * 0.02;
-    //val = triangle(count / 44100 * 2 * Math.PI * 440) * 0.02;
-    //val = square(count / 44100 * 2 * Math.PI * 440) * 0.02;
+    for (const [note, value] of keys) {
+      const [time, velocity, count] = value;
+      if (time > index) {
+        continue;
+      }
+      const v = (velocity / 127.0) * Math.exp(-5 * count / ctx.sampling_rate);
+      if (v < 0.001) {
+        //keys.delete(note);
+        continue;
+      }
+      for (let j = 0; j < 4; j++) {
+        const a = [0, 4, 5, 9][j];
+        const freq = 440 * Math.pow(2, (note + a - 69) / 12);
+        val += Math.sin(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+        //val += sawtooth(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+        //val += triangle(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+        //val += square(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+      }
+      value[2]++;
+    }
+    val *= 0.1;
     ctx.audio[index] = val;
     ctx.audio[index+half] = val;
-    count += 1;
   }
   return 100;
 };

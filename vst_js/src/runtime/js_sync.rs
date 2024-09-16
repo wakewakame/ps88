@@ -14,6 +14,9 @@ enum Message {
     Compile(String, std::sync::mpsc::Sender<runtime::Result<()>>),
     Audio(
         Vec<f32>,
+        usize,
+        f32,
+        Vec<u8>,
         std::sync::mpsc::Sender<(runtime::Result<()>, Vec<f32>)>,
     ),
 }
@@ -41,9 +44,9 @@ impl JsRuntimeBuilder {
                         let result = runtime.compile(&code);
                         let _ = output_tx.send(result);
                     }
-                    Message::Audio(mut audio, output_tx) => {
+                    Message::Audio(mut audio, ch, sampling_rate, midi, output_tx) => {
                         // TODO: unsafe を使えば audio は参照渡しで読み書きできるかもしれない
-                        let result = runtime.audio(&mut audio);
+                        let result = runtime.audio(&mut audio, ch, sampling_rate, &midi);
                         let _ = output_tx.send((result, audio));
                     }
                 }
@@ -72,14 +75,29 @@ impl runtime::ScriptRuntime for JsRuntime {
         }
     }
 
-    fn audio(&mut self, audio: &mut [f32]) -> runtime::Result<()> {
+    fn audio(
+        &mut self,
+        audio: &mut [f32],
+        ch: usize,
+        sampling_rate: f32,
+        midi: &[u8],
+    ) -> runtime::Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.message
-            .send(Message::Audio(audio.to_vec(), tx))
+            .send(Message::Audio(
+                audio.to_vec(),
+                ch,
+                sampling_rate,
+                midi.to_vec(),
+                tx,
+            ))
             .map_err(|_| js::JsRuntimeError::UnexpectedError("failed to send".into()))?;
         match rx.recv() {
-            Ok((result, out)) => {
-                audio.iter_mut().zip(out.iter()).for_each(|(o, v)| *o = *v);
+            Ok((result, out_audio)) => {
+                audio
+                    .iter_mut()
+                    .zip(out_audio.iter())
+                    .for_each(|(o, v)| *o = *v);
                 result
             }
             _ => Err(js::JsRuntimeError::UnexpectedError("failed to receive".into()).into()),
@@ -139,7 +157,11 @@ mod tests {
                 for _ in 0..3 {
                     // 実行ごとに入力配列の数を変える
                     let mut audio: Vec<f32> = (0..(i + 1) * 100).map(|x| x as f32).collect();
-                    runtime2.lock().unwrap().audio(&mut audio).unwrap();
+                    runtime2
+                        .lock()
+                        .unwrap()
+                        .audio(&mut audio, 2, 48000.0, &[])
+                        .unwrap();
                     assert_eq!(
                         audio,
                         (0..(i + 1) * 100)
