@@ -1,4 +1,6 @@
-# vst\_js
+# PS88
+
+Programmable Synthesizer 88
 
 DAW 上で JavaScript を実行できるようにするプラグイン。
 JavaScript を使って楽器やエフェクタなどをサクサク実装できるようにする。
@@ -21,16 +23,16 @@ VST 開発も JavaScript の実行エンジンの用意も C++ では環境構�
 ## Windows / MacOS / Linux
 
 ```
-cargo xtask bundle vst_js --release
+cargo xtask bundle ps88 --release
 ```
 
 実行すると `target/bundled/` に以下が生成される。
 
-- `vst_js.vst3`
+- `ps88.vst3`
     - vst3 ファイル
-- `vst_js` or `vst_js.exe`
+- `ps88` or `ps88.exe`
     - 単独実行可能な実行ファイル
-    - `vst_js -h` で使い方を表示できる
+    - `ps88 -h` で使い方を表示できる
 
 # 開発中に気になった疑問
 
@@ -45,11 +47,3 @@ cargo xtask bundle vst_js --release
 	- 原因はまだわかっていないけど、 vst3 だと再現しないっぽいので nih-plug 側に問題がありそう？
 	- `period-size` に `sample-rate` の約数を指定するとなぜかノイズは消える
 		- `sample-rate = 48000` の場合は `period-size = 480` を指定するなど
-
-# 直近の目標
-
-- [ ] MIDI 入力を受け取って正弦波を鳴らせるようにする
-- [ ] js で音声処理できるようにする
-- [ ] iced でテキストエディタを表示する
-- [ ] iced でつまみや図形を表示する
-- [ ] js からつまみや図形の描画をできるようにする

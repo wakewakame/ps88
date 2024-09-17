@@ -5,7 +5,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 pub fn editor(
-    params: Arc<crate::params::VstJsParams>,
+    params: Arc<crate::params::PS88Params>,
     runtime: Arc<Mutex<dyn crate::runtime::runtime::ScriptRuntime + Sync + Send>>,
 ) -> Option<Box<dyn Editor>> {
     create_egui_editor(

@@ -6,7 +6,7 @@ const DEFAULT_SCRIPT: &'static str = std::include_str!("default_script.js");
 
 // VST プラグイン内で保持するデータ
 #[derive(Params)]
-pub struct VstJsParams {
+pub struct PS88Params {
     // ユーザーが入力したコード
     #[persist = "code"]
     pub code: Arc<Mutex<String>>,
@@ -26,7 +26,7 @@ pub struct VstJsParams {
     pub editor_state: Arc<EguiState>,
 }
 
-impl Default for VstJsParams {
+impl Default for PS88Params {
     fn default() -> Self {
         Self {
             code: Arc::new(Mutex::new(String::from(DEFAULT_SCRIPT))),

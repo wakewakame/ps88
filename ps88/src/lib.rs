@@ -6,9 +6,9 @@ mod runtime;
 use nih_plug::prelude::*;
 use std::sync::{Arc, Mutex};
 
-pub struct VstJs {
+pub struct PS88 {
     // VST プラグイン内で保持するデータ
-    params: Arc<params::VstJsParams>,
+    params: Arc<params::PS88Params>,
 
     // JavaScript のランタイム
     runtime: Arc<Mutex<dyn runtime::runtime::ScriptRuntime + Sync + Send>>,
@@ -17,7 +17,7 @@ pub struct VstJs {
     time: u64,
 }
 
-impl Default for VstJs {
+impl Default for PS88 {
     fn default() -> Self {
         let runtime: Arc<Mutex<dyn runtime::runtime::ScriptRuntime + Sync + Send>> =
             Arc::new(Mutex::new(
@@ -28,7 +28,7 @@ impl Default for VstJs {
                     .build(),
             ));
         Self {
-            params: Arc::new(params::VstJsParams::default()),
+            params: Arc::new(params::PS88Params::default()),
             runtime,
             sample_rate: 1.0,
             time: 0,
@@ -36,9 +36,9 @@ impl Default for VstJs {
     }
 }
 
-impl Plugin for VstJs {
-    const NAME: &'static str = "vst_js";
-    const VENDOR: &'static str = "vst_js";
+impl Plugin for PS88 {
+    const NAME: &'static str = "ps88";
+    const VENDOR: &'static str = "ps88";
     const URL: &'static str = env!("CARGO_PKG_REPOSITORY");
     const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -166,10 +166,10 @@ impl Plugin for VstJs {
     }
 }
 
-impl Vst3Plugin for VstJs {
-    const VST3_CLASS_ID: [u8; 16] = *b"VstJs___________";
+impl Vst3Plugin for PS88 {
+    const VST3_CLASS_ID: [u8; 16] = *b"PS88____________";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
 }
 
-nih_export_vst3!(VstJs);
+nih_export_vst3!(PS88);

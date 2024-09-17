@@ -44,6 +44,9 @@ const audio = (ctx) => {
       const velocity = ctx.midi[i + 6];
       if (type === 0x9) {
         keys.set(note, [time, velocity, 0]);
+        keys.set(note + 4, [time, velocity, 0]);
+        keys.set(note + 5, [time, velocity, 0]);
+        keys.set(note + 9, [time, velocity, 0]);
       } else if (type === 0x8) {
         //keys.delete(note);
       }
@@ -61,17 +64,14 @@ const audio = (ctx) => {
         //keys.delete(note);
         continue;
       }
-      for (let j = 0; j < 4; j++) {
-        const a = [0, 4, 5, 9][j];
-        const freq = 440 * Math.pow(2, (note + a - 69) / 12);
-        val += Math.sin(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
-        //val += sawtooth(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
-        //val += triangle(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
-        //val += square(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
-      }
+      const freq = 440 * Math.pow(2, (note - 69) / 12);
+      val += Math.sin(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+      //val += sawtooth(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+      //val += triangle(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
+      //val += square(count / ctx.sampling_rate * 2 * Math.PI * freq) * v;
       value[2]++;
     }
-    val *= 0.1;
+    val *= 0.8;
     ctx.audio[index] = val;
     ctx.audio[index+half] = val;
   }
