@@ -1,8 +1,12 @@
 # PS88
 
+<p align="center">
+<img src="./logo.svg" width="240" alt="PS88 logo">
+</p>
+
 Programmable Synthesizer 88
 
-JavaScript で波形を生成できる万能シンセサイザー。
+JavaScript で波形を生成できるシンセサイザー。
 
 VST として動作するため、好きな作曲ソフトから利用できる。
 
