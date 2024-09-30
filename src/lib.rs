@@ -7,7 +7,7 @@ use nih_plug::prelude::*;
 use std::sync::{Arc, Mutex};
 
 pub struct PS88 {
-    // VST プラグイン内で保持するデータ
+    // プラグイン内で保持するデータ
     params: Arc<params::PS88Params>,
 
     // JavaScript のランタイム
@@ -166,10 +166,24 @@ impl Plugin for PS88 {
     }
 }
 
+impl ClapPlugin for PS88 {
+    const CLAP_ID: &'static str = "ps88";
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("programmable synthesizer");
+    const CLAP_MANUAL_URL: Option<&'static str> = None;
+    const CLAP_SUPPORT_URL: Option<&'static str> = None;
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::Instrument,
+        ClapFeature::Synthesizer,
+        ClapFeature::Stereo,
+    ];
+}
+nih_export_clap!(PS88);
+
+#[cfg(feature = "vst3")]
 impl Vst3Plugin for PS88 {
     const VST3_CLASS_ID: [u8; 16] = *b"PS88____________";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
 }
-
+#[cfg(feature = "vst3")]
 nih_export_vst3!(PS88);

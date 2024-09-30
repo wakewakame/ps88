@@ -5,16 +5,20 @@ edition = "2021"
 authors = ["Taiki Yoshii"]
 license = "GPL-3.0"
 
-keywords = ["vst3", "synthesizer"]
-description = "A programmable synthesizer for VST3"
+keywords = ["synthesizer", "clap", "vst3"]
+description = "A programmable synthesizer"
 repository = "https://github.com/wakewakame/ps88"
 
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[features]
+default = ["vst3"]
+vst3 = ["nih_plug/vst3"]
+
 [dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "dfafe90349aa3d8e40922ec031b6d673803d6432", features = ["assert_process_allocs", "standalone"] }
-nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "dfafe90349aa3d8e40922ec031b6d673803d6432" }
+nih_plug = { git = "https://github.com/wakewakame/nih-plug.git", rev = "f43fd5ccd6521227558d1a3949b612690f225123", default-features = false, features = ["assert_process_allocs", "standalone"] }
+nih_plug_egui = { git = "https://github.com/wakewakame/nih-plug.git", rev = "f43fd5ccd6521227558d1a3949b612690f225123" }
 thiserror = "1.0.59"
 v8 = { git = "https://github.com/denoland/rusty_v8.git", tag = "v0.91.1" }
 rfd = "0.14.1"

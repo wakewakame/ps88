@@ -8,7 +8,7 @@ Programmable Synthesizer 88
 
 JavaScript で波形を生成できるシンセサイザー。
 
-VST として動作するため、好きな作曲ソフトから利用できる。
+CLAP / VST3 として動作するため、作曲ソフトから利用できる。
 
 TODO: ここにデモの gif を載せる
 
@@ -27,12 +27,14 @@ TODO: 書く
 ## Windows / MacOS / Linux
 
 ```
-cargo install --git https://github.com/robbert-vdh/nih-plug --rev dfafe90349aa3d8e40922ec031b6d673803d6432 xtask
+cargo install --git https://github.com/robbert-vdh/nih-plug --rev f43fd5ccd6521227558d1a3949b612690f225123 xtask
 xtask bundle ps88 --release
 ```
 
 実行すると `target/bundled/` に以下が生成される。
 
+- `ps88.clap`
+    - clap ファイル
 - `ps88.vst3`
     - vst3 ファイル
 - `ps88` or `ps88.exe`
@@ -44,10 +46,10 @@ xtask bundle ps88 --release
 - 細々した機能
     - [ ] 画面のデザインを考える
     - [ ] 画面遷移の図を作る
-    - [ ] js で任意のデータを VST 側のストレージに保存/読込できるようにする
+    - [ ] js で任意のデータをプラグインのホスト側のストレージに保存/読込できるようにする
     - [ ] 開いている js ファイルのパスを記憶し、次開いた時にファイルがあればそれを読むようにする
         - ファイルが存在しなかったとしても特にエラーにはせず、パスの参照を解除するのみ
-    - [ ] js から VST の envelope を読み取れるようにする
+    - [ ] js から envelope を読み取れるようにする
         - envelope は 4 つ固定とする
         - js 側から任意の envelope を設定できるようにすることもできそうだけど、複雑になりそう
     - [ ] js をもっと使いやすい感じに整える
@@ -96,7 +98,7 @@ xtask bundle ps88 --release
             - 投稿した作品のサンプルとして再生する MIDI の登録
                 - 動画で言うところのサムネイルみたいなイメージ
             - ユーザ登録
-            - 作品の VST へのインポート
+            - 作品のプラグインへのインポート
     - [ ] プロモーションビデオを作る
     - [ ] PS88 でお金を稼ぐ
     - [ ] PS88 で生計を立てる

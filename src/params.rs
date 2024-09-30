@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 const DEFAULT_SCRIPT: &'static str = std::include_str!("default_script.js");
 
-// VST プラグイン内で保持するデータ
+// プラグイン内で保持するデータ
 #[derive(Params)]
 pub struct PS88Params {
     // ユーザーが入力したコード
