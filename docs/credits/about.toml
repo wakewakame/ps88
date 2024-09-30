@@ -1,0 +1,21 @@
+no-clearly-defined = true
+accepted = [
+    "Apache-2.0",
+    "BSD-1-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "GPL-3.0",
+    "ISC",
+    "LicenseRef-UFL-1.0",
+    "MIT",
+    "OFL-1.1",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+
+[vst3-sys.clarify]
+license = "GPL-3.0"
+[[vst3-sys.clarify.files]]
+path = "license.md"
+checksum = "1be76dd654024ee690864bea328622e912847461671cee0533ddf9a2cab4a31d"
