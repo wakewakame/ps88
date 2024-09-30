@@ -1,2 +1,23 @@
-[workspace]
-members = ["ps88", "xtask"]
+[package]
+name = "ps88"
+version = "0.1.0"
+edition = "2021"
+authors = ["Taiki Yoshii"]
+license = "GPL-3.0"
+
+keywords = ["vst3", "synthesizer"]
+description = "A programmable synthesizer for VST3"
+repository = "https://github.com/wakewakame/ps88"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "dfafe90349aa3d8e40922ec031b6d673803d6432", features = ["assert_process_allocs", "standalone"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "dfafe90349aa3d8e40922ec031b6d673803d6432" }
+thiserror = "1.0.59"
+v8 = { git = "https://github.com/denoland/rusty_v8.git", tag = "v0.91.1" }
+rfd = "0.14.1"
+mockall = "0.13.0"
+notify = "6.1.1"
+log = "0.4.22"

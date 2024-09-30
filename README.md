@@ -27,7 +27,8 @@ TODO: 書く
 ## Windows / MacOS / Linux
 
 ```
-cargo xtask bundle ps88 --release
+cargo install --git https://github.com/robbert-vdh/nih-plug --rev dfafe90349aa3d8e40922ec031b6d673803d6432 xtask
+xtask bundle ps88 --release
 ```
 
 実行すると `target/bundled/` に以下が生成される。
