@@ -48,9 +48,41 @@ pub fn editor(
                 ui.add(widgets::ParamSlider::for_param(&params.param2, setter));
                 ui.add(widgets::ParamSlider::for_param(&params.param3, setter));
                 ui.add(widgets::ParamSlider::for_param(&params.param4, setter));
+                ui.add(CustomButton());
             });
         },
     )
+}
+
+struct CustomButton();
+impl egui::Widget for CustomButton {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let pos = ui.input(|s| s.pointer.hover_pos().unwrap_or_default());
+        let vertex_default = egui::epaint::Vertex {
+            pos: egui::pos2(0.0, 0.0),
+            color: egui::Color32::WHITE,
+            uv: egui::pos2(0.0, 0.0),
+        };
+        let p = |x: f32, y: f32, g: u8| egui::epaint::Vertex {
+            pos: egui::pos2(x, y),
+            color: egui::Color32::from_rgba_premultiplied(g, 0, 0, 255),
+            ..vertex_default
+        };
+        let shape = egui::Shape::Mesh(egui::Mesh {
+            //indices: vec![0, 1, 2, 0, 2, 3],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            vertices: vec![
+                p(10.0, 110.0, 128),
+                p(90.0, 110.0, 255),
+                p(10.0, 190.0, 90),
+                p(pos.x, pos.y, 198),
+            ],
+            texture_id: egui::TextureId::Managed(0),
+        });
+        let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+        painter.add(shape);
+        response
+    }
 }
 
 fn load_script<F: Fn(String) + Sync + Send + 'static>(
