@@ -16,6 +16,19 @@ pub fn editor(
         |_, _| {},
         move |egui_ctx, setter, state| {
             egui::CentralPanel::default().show(egui_ctx, |ui| {
+                {
+                    let mouse = ui.input(|s| {
+                        let pos = s.pointer.hover_pos().unwrap_or_default();
+                        crate::runtime::runtime::Mouse {
+                            x: pos.x,
+                            y: pos.y,
+                            left: s.pointer.primary_down(),
+                            right: s.pointer.secondary_down(),
+                        }
+                    });
+                    let shapes = runtime.lock().unwrap().gui(&mouse);
+                    println!("{:?}", shapes);
+                }
                 ui.menu_button("File", |ui| {
                     if ui.button("Open").clicked() {
                         let runtime = runtime.clone();

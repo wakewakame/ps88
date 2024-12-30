@@ -70,7 +70,8 @@ impl runtime::ScriptRuntime for JsRuntime {
 
         let context = {
             let handle_scope = &mut v8::HandleScope::new(&mut self.isolate);
-            let context = v8::Context::new(handle_scope);
+            let optioins = v8::ContextOptions::default();
+            let context = v8::Context::new(handle_scope, optioins);
             v8::Global::new(handle_scope, context)
         };
 
@@ -258,6 +259,38 @@ impl runtime::ScriptRuntime for JsRuntime {
         }
 
         Ok(())
+    }
+
+    fn gui(&mut self, mouse: &runtime::Mouse) -> runtime::Result<Vec<runtime::Shape>> {
+        let Some(runtime_context) = self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() else {
+            return Err(JsRuntimeError::NotCompiled.into());
+        };
+        let context = runtime_context.clone();
+        let gui_func = context.borrow_mut().gui_func.clone();
+
+        let context = &mut *context.borrow_mut();
+        let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context.context);
+        let ctx = v8::Array::new(scope, 0);
+        let shapes_key = v8::String::new(scope, "shapes").unwrap();
+        let shapes = v8::Array::new(scope, 0);
+        ctx.set(scope, shapes_key.into(), shapes.into());
+        let mouse = serde_v8::to_v8(scope, mouse).unwrap();
+
+        let gui_func = v8::Local::new(scope, gui_func);
+        let this = v8::undefined(scope).into();
+        let _result = {
+            let mut try_catch = v8::TryCatch::new(scope);
+            match gui_func.call(&mut try_catch, this, &[ctx.into(), mouse]) {
+                Some(result) => result,
+                None => {
+                    return Err(JsRuntimeError::ProcessError(report_exceptions(try_catch)).into());
+                }
+            }
+        };
+        match serde_v8::from_v8::<Vec<runtime::Shape>>(scope, shapes.into()) {
+            Ok(shapes) => Ok(shapes),
+            Err(err) => Err(JsRuntimeError::ProcessError(err.to_string()).into()),
+        }
     }
 }
 

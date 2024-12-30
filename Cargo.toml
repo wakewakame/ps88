@@ -16,7 +16,13 @@ crate-type = ["cdylib", "lib"]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "dfafe90349aa3d8e40922ec031b6d673803d6432", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "dfafe90349aa3d8e40922ec031b6d673803d6432" }
 thiserror = "1.0.59"
-v8 = { git = "https://github.com/denoland/rusty_v8.git", tag = "v0.91.1" }
+
+# deno_core を参照
+# https://github.com/denoland/deno_core/blob/f43085b91cd7a6b4ae6ae4efc041bf96bae3961f/Cargo.toml#L23-L31
+v8 = { version = "130.0.2", default-features = false }
+serde_v8 = "0.236.0"
+serde = { version = "1", features = ["derive"] }
+
 rfd = "0.14.1"
 mockall = "0.13.0"
 notify = "6.1.1"

@@ -78,4 +78,15 @@ const audio = (ctx) => {
   return 100;
 };
 
-const gui = () => {};
+const gui = (ctx, mouse) => {
+  const shape = {
+    "shape": [mouse.x, mouse.y],
+  };
+  if (mouse.left) {
+    shape["fill"] = 0x000000;
+  }
+  if (mouse.right) {
+    shape["stroke"] = [0x000000, 1.0, true];
+  }
+  ctx.shapes.push(shape);
+};
