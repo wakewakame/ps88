@@ -33,8 +33,12 @@ const square = (rad) => {
  *        6 byte: ベロシティ (1-127)
  */
 const keys = new Map();
+let wave = [];
 const audio = (ctx) => {
   const half = ctx.audio.length / ctx.ch;
+  if (wave.length != half) {
+    wave = Array(half).fill(0);
+  }
   if (ctx.midi.length > 0) {
     for (let i = 0; i < ctx.midi.length; i += 7) {
       const time = (ctx.midi[i] << 24) | (ctx.midi[i + 1] << 16) | (ctx.midi[i + 2] << 8) | ctx.midi[i + 3];
@@ -56,12 +60,13 @@ const audio = (ctx) => {
     let val = 0.0;
     for (const [note, value] of keys) {
       const [time, velocity, count] = value;
-      if (time > index) {
-        continue;
-      }
       const v = (velocity / 127.0) * Math.exp(-5 * count / ctx.sampling_rate);
       if (v < 0.001) {
-        //keys.delete(note);
+        keys.delete(note);
+        continue;
+      }
+      if (index < time) {
+        value[0] = 0;
         continue;
       }
       const freq = 440 * Math.pow(2, (note - 69) / 12);
@@ -74,19 +79,32 @@ const audio = (ctx) => {
     val *= 0.8;
     ctx.audio[index] = val;
     ctx.audio[index+half] = val;
+    wave[index] = val;
   }
   return 100;
 };
 
-const gui = (ctx, mouse) => {
-  const shape = {
-    "shape": [mouse.x, mouse.y],
-  };
-  if (mouse.left) {
-    shape["fill"] = 0x000000;
-  }
-  if (mouse.right) {
-    shape["stroke"] = [0x000000, 1.0, true];
-  }
-  ctx.shapes.push(shape);
+const gui = (ctx, area, mouse) => {
+  const shape = wave.map((val, index) => {
+    const x = area.x * index / wave.length;
+    const y = area.y * (0.1 * val + 1) / 2;
+    return [x, y];
+  }).flat();
+  ctx.shapes.push({
+    "Polygon": {
+      "shape": [0.0, area.y, ...shape, area.x, area.y],
+      "fill": 0xFF99FF30,
+      "stroke": 0xFFFFFFFF,
+      "stroke_width": 4.0,
+    }
+  });
+
+  ctx.shapes.push({
+    "Text": {
+      "text": "hello world",
+      "size": 12.0,
+      "pos": [mouse.x, mouse.y],
+      "color": 0xFFFFFFFF
+    }
+  });
 };

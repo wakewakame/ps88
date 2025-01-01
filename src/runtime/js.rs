@@ -261,7 +261,11 @@ impl runtime::ScriptRuntime for JsRuntime {
         Ok(())
     }
 
-    fn gui(&mut self, mouse: &runtime::Mouse) -> runtime::Result<Vec<runtime::Shape>> {
+    fn gui(
+        &mut self,
+        area: &runtime::Pos2,
+        mouse: &runtime::Mouse,
+    ) -> runtime::Result<Vec<runtime::Shape>> {
         let Some(runtime_context) = self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() else {
             return Err(JsRuntimeError::NotCompiled.into());
         };
@@ -274,13 +278,14 @@ impl runtime::ScriptRuntime for JsRuntime {
         let shapes_key = v8::String::new(scope, "shapes").unwrap();
         let shapes = v8::Array::new(scope, 0);
         ctx.set(scope, shapes_key.into(), shapes.into());
+        let area = serde_v8::to_v8(scope, area).unwrap();
         let mouse = serde_v8::to_v8(scope, mouse).unwrap();
 
         let gui_func = v8::Local::new(scope, gui_func);
         let this = v8::undefined(scope).into();
         let _result = {
             let mut try_catch = v8::TryCatch::new(scope);
-            match gui_func.call(&mut try_catch, this, &[ctx.into(), mouse]) {
+            match gui_func.call(&mut try_catch, this, &[ctx.into(), area, mouse]) {
                 Some(result) => result,
                 None => {
                     return Err(JsRuntimeError::ProcessError(report_exceptions(try_catch)).into());

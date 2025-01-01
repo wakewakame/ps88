@@ -20,6 +20,7 @@ enum Message {
         std::sync::mpsc::Sender<(runtime::Result<()>, Vec<f32>)>,
     ),
     Gui(
+        runtime::Pos2,
         runtime::Mouse,
         std::sync::mpsc::Sender<runtime::Result<Vec<runtime::Shape>>>,
     ),
@@ -53,8 +54,8 @@ impl JsRuntimeBuilder {
                         let result = runtime.audio(&mut audio, ch, sampling_rate, &midi);
                         let _ = output_tx.send((result, audio));
                     }
-                    Message::Gui(mouse, output_tx) => {
-                        let result = runtime.gui(&mouse);
+                    Message::Gui(area, mouse, output_tx) => {
+                        let result = runtime.gui(&area, &mouse);
                         let _ = output_tx.send(result);
                     }
                 }
@@ -112,10 +113,14 @@ impl runtime::ScriptRuntime for JsRuntime {
         }
     }
 
-    fn gui(&mut self, mouse: &runtime::Mouse) -> runtime::Result<Vec<runtime::Shape>> {
+    fn gui(
+        &mut self,
+        area: &runtime::Pos2,
+        mouse: &runtime::Mouse,
+    ) -> runtime::Result<Vec<runtime::Shape>> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.message
-            .send(Message::Gui(mouse.clone(), tx))
+            .send(Message::Gui(area.clone(), mouse.clone(), tx))
             .map_err(|_| js::JsRuntimeError::UnexpectedError("failed to send".into()))?;
         match rx.recv() {
             Ok(result) => result,
