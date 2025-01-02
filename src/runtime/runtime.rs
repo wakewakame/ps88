@@ -40,7 +40,6 @@ pub struct TextShape {
 }
 
 pub trait ScriptRuntime {
-    //fn init(&mut self, param: ());
     fn compile(&mut self, code: &str) -> Result<()>;
     fn audio(
         &mut self,
@@ -50,4 +49,5 @@ pub trait ScriptRuntime {
         midi: &[u8],
     ) -> Result<()>;
     fn gui(&mut self, area: &Pos2, mouse: &Mouse) -> Result<Vec<Shape>>;
+    fn add_logger(&mut self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) -> Result<()>;
 }

@@ -6,18 +6,14 @@ use std::sync::Once;
 use thiserror::Error;
 use v8;
 
-pub struct JsRuntimeBuilder {
-    on_log: Option<Rc<dyn Fn(String)>>,
-}
-
 pub struct JsRuntime {
     isolate: v8::OwnedIsolate,
-    on_log: Option<Rc<dyn Fn(String)>>,
+    loggers: Rc<RefCell<Vec<Box<dyn Fn(String) -> bool>>>>,
 }
 
 struct JsRuntimeContext {
     context: v8::Global<v8::Context>,
-    _inspector: Option<Rc<RefCell<InspectorClient>>>,
+    _inspector: Rc<RefCell<InspectorClient>>,
     audio: v8::Global<v8::ArrayBuffer>,
     audio_func: v8::Global<v8::Function>,
     gui_func: v8::Global<v8::Function>,
@@ -35,12 +31,8 @@ pub enum JsRuntimeError {
     UnexpectedError(String),
 }
 
-impl JsRuntimeBuilder {
+impl JsRuntime {
     pub fn new() -> Self {
-        JsRuntimeBuilder { on_log: None }
-    }
-
-    pub fn build(self) -> JsRuntime {
         static PUPPY_INIT: Once = Once::new();
         PUPPY_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -48,15 +40,10 @@ impl JsRuntimeBuilder {
             v8::V8::initialize();
         });
         let isolate = v8::Isolate::new(Default::default());
-        JsRuntime {
+        Self {
             isolate,
-            on_log: self.on_log,
+            loggers: Rc::new(RefCell::new(vec![])),
         }
-    }
-
-    pub fn on_log(mut self, on_log: Rc<dyn Fn(String)>) -> Self {
-        self.on_log = Some(on_log);
-        self
     }
 }
 
@@ -75,14 +62,24 @@ impl runtime::ScriptRuntime for JsRuntime {
             v8::Global::new(handle_scope, context)
         };
 
-        let on_log = self.on_log.clone();
-        let inspector = if let Some(on_log) = on_log {
+        let loggers = self.loggers.clone();
+        let inspector = {
             let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context);
             let context = v8::Local::new(scope, &context);
-            let inspector = InspectorClient::new(scope, context, on_log)?;
-            Some(inspector)
-        } else {
-            None
+            let inspector = InspectorClient::new(
+                scope,
+                context,
+                Box::new(move |log| {
+                    loggers.replace(
+                        loggers
+                            .replace(vec![])
+                            .into_iter()
+                            .filter(|logger| logger(log.clone()))
+                            .collect::<Vec<Box<dyn Fn(String) -> bool>>>(),
+                    );
+                }),
+            )?;
+            inspector
         };
 
         let audio = {
@@ -297,19 +294,27 @@ impl runtime::ScriptRuntime for JsRuntime {
             Err(err) => Err(JsRuntimeError::ProcessError(err.to_string()).into()),
         }
     }
+
+    fn add_logger(
+        &mut self,
+        logger: Box<dyn Fn(String) -> bool + Send + Sync>,
+    ) -> runtime::Result<()> {
+        self.loggers.borrow_mut().push(logger);
+        Ok(())
+    }
 }
 
 struct InspectorClient {
     v8_inspector_client: v8::inspector::V8InspectorClientBase,
     v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
-    on_log: Rc<dyn Fn(String)>,
+    on_log: Box<dyn Fn(String)>,
 }
 
 impl InspectorClient {
     fn new(
         scope: &mut v8::HandleScope,
         context: v8::Local<v8::Context>,
-        on_log: Rc<dyn Fn(String)>,
+        on_log: Box<dyn Fn(String)>,
     ) -> runtime::Result<Rc<RefCell<Self>>> {
         let v8_inspector_client = v8::inspector::V8InspectorClientBase::new::<Self>();
         let self__ = Rc::new(RefCell::new(Self {
@@ -450,18 +455,13 @@ mod tests {
     #[test]
     fn audio() {
         // console.log の出力結果保存用
-        let logs = Rc::new(RefCell::<Vec<String>>::new(vec![]));
-        let logs_clone = logs.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
 
         // 初期化
-        let mut runtime: Box<dyn runtime::ScriptRuntime> = Box::new(
-            JsRuntimeBuilder::new()
-                .on_log(Rc::new(move |log| {
-                    let mut logs = logs_clone.borrow_mut();
-                    logs.push(log);
-                }))
-                .build(),
-        );
+        let mut runtime: Box<dyn runtime::ScriptRuntime> = Box::new(JsRuntime::new());
+        runtime
+            .add_logger(Box::new(move |log| tx.send(log).is_ok()))
+            .unwrap();
 
         // compile が 3 回行えることを確認
         for i in 0..3 {
@@ -497,28 +497,30 @@ mod tests {
                 );
             }
         }
+        drop(runtime);
 
         // console.log が取得できていることを確認
-        let logs = logs.borrow();
-        assert_eq!(logs.len(), 12);
-        assert_eq!(logs[0], "init: 0");
-        assert_eq!(logs[1], "init: 0, count: 0");
-        assert_eq!(logs[2], "init: 0, count: 1");
-        assert_eq!(logs[3], "init: 0, count: 2");
-        assert_eq!(logs[4], "init: 1");
-        assert_eq!(logs[5], "init: 1, count: 0");
-        assert_eq!(logs[6], "init: 1, count: 1");
-        assert_eq!(logs[7], "init: 1, count: 2");
-        assert_eq!(logs[8], "init: 2");
-        assert_eq!(logs[9], "init: 2, count: 0");
-        assert_eq!(logs[10], "init: 2, count: 1");
-        assert_eq!(logs[11], "init: 2, count: 2");
+        assert_eq!(rx.try_recv(), Ok("init: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 0, count: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 0, count: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 0, count: 2".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1, count: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1, count: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1, count: 2".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2, count: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2, count: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2, count: 2".to_string()));
+        assert_eq!(
+            rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        );
     }
 
     #[test]
     fn compile_error() {
-        let mut runtime: Box<dyn runtime::ScriptRuntime> =
-            Box::new(JsRuntimeBuilder::new().build());
+        let mut runtime: Box<dyn runtime::ScriptRuntime> = Box::new(JsRuntime::new());
 
         // 不正な構文
         let result = runtime.compile("let a == 1;");
@@ -535,8 +537,7 @@ mod tests {
 
     #[test]
     fn process_error() {
-        let mut runtime: Box<dyn runtime::ScriptRuntime> =
-            Box::new(JsRuntimeBuilder::new().build());
+        let mut runtime: Box<dyn runtime::ScriptRuntime> = Box::new(JsRuntime::new());
 
         // 処理中に例外
         let result = runtime.compile(

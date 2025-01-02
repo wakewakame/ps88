@@ -20,13 +20,7 @@ pub struct PS88 {
 impl Default for PS88 {
     fn default() -> Self {
         let runtime: Arc<Mutex<dyn runtime::runtime::ScriptRuntime + Sync + Send>> =
-            Arc::new(Mutex::new(
-                runtime::js_sync::JsRuntimeBuilder::new()
-                    .on_log(std::sync::Arc::new(|log| {
-                        println!("{}", log);
-                    }))
-                    .build(),
-            ));
+            Arc::new(Mutex::new(runtime::js_sync::JsRuntime::new()));
         Self {
             params: Arc::new(params::PS88Params::default()),
             runtime,
