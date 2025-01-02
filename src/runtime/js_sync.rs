@@ -2,12 +2,9 @@ use crate::runtime::js;
 use crate::runtime::runtime;
 use crate::runtime::runtime::ScriptRuntime;
 
-pub struct JsRuntimeBuilder {
-    on_log: Option<std::sync::Arc<dyn Fn(String) + Send + Sync>>,
-}
-
 pub struct JsRuntime {
     message: std::sync::mpsc::Sender<Message>,
+    handle: std::thread::JoinHandle<()>,
 }
 
 enum Message {
@@ -24,25 +21,14 @@ enum Message {
         runtime::Mouse,
         std::sync::mpsc::Sender<runtime::Result<Vec<runtime::Shape>>>,
     ),
+    AddLogger(Box<dyn Fn(String) -> bool + Send + Sync>),
 }
 
-impl JsRuntimeBuilder {
+impl JsRuntime {
     pub fn new() -> Self {
-        JsRuntimeBuilder { on_log: None }
-    }
-
-    pub fn build(self) -> JsRuntime {
         let (message_tx, message_rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let builder = js::JsRuntimeBuilder::new();
-            let builder = if let Some(on_log) = self.on_log {
-                builder.on_log(std::rc::Rc::new(move |log| {
-                    on_log(log);
-                }))
-            } else {
-                builder
-            };
-            let mut runtime = builder.build();
+        let handle = std::thread::spawn(move || {
+            let mut runtime = js::JsRuntime::new();
             for event in message_rx {
                 match event {
                     Message::Compile(code, output_tx) => {
@@ -58,17 +44,25 @@ impl JsRuntimeBuilder {
                         let result = runtime.gui(&area, &mouse);
                         let _ = output_tx.send(result);
                     }
+                    Message::AddLogger(logger) => {
+                        let _ = runtime.add_logger(logger);
+                    }
                 }
             }
         });
         JsRuntime {
             message: message_tx,
+            handle,
         }
     }
+}
 
-    pub fn on_log(mut self, on_log: std::sync::Arc<dyn Fn(String) + Send + Sync>) -> Self {
-        self.on_log = Some(on_log);
-        self
+impl Drop for JsRuntime {
+    fn drop(&mut self) {
+        let message = std::mem::replace(&mut self.message, std::sync::mpsc::channel().0);
+        drop(message);
+        let handler = std::mem::replace(&mut self.handle, std::thread::spawn(move || {}));
+        let _ = handler.join();
     }
 }
 
@@ -127,6 +121,16 @@ impl runtime::ScriptRuntime for JsRuntime {
             _ => Err(js::JsRuntimeError::UnexpectedError("failed to receive".into()).into()),
         }
     }
+
+    fn add_logger(
+        &mut self,
+        logger: Box<dyn Fn(String) -> bool + Sync + Send>,
+    ) -> runtime::Result<()> {
+        self.message
+            .send(Message::AddLogger(logger))
+            .map_err(|_| js::JsRuntimeError::UnexpectedError("failed to send".into()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -137,20 +141,16 @@ mod tests {
     #[test]
     fn audio() {
         // console.log の出力結果保存用
-        let logs = std::sync::Arc::new(std::sync::Mutex::<Vec<String>>::new(vec![]));
-        let logs_clone = logs.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
 
         // 初期化
         let runtime: std::sync::Arc<std::sync::Mutex<dyn runtime::ScriptRuntime + Send + Sync>> =
-            std::sync::Arc::new(std::sync::Mutex::new(
-                JsRuntimeBuilder::new()
-                    .on_log(std::sync::Arc::new(move |log| {
-                        //let mut logs = logs_clone.borrow_mut();
-                        let mut logs = logs_clone.lock().unwrap();
-                        logs.push(log);
-                    }))
-                    .build(),
-            ));
+            std::sync::Arc::new(std::sync::Mutex::new(JsRuntime::new()));
+        runtime
+            .lock()
+            .unwrap()
+            .add_logger(Box::new(move |log| tx.send(log).is_ok()))
+            .unwrap();
 
         // compile が 3 回行えることを確認
         let runtime2 = runtime.clone();
@@ -196,21 +196,24 @@ mod tests {
             }
         });
         th.join().unwrap();
+        drop(runtime);
 
         // console.log が取得できていることを確認
-        let logs = logs.lock().unwrap();
-        assert_eq!(logs.len(), 12);
-        assert_eq!(logs[0], "init: 0");
-        assert_eq!(logs[1], "init: 0, count: 0");
-        assert_eq!(logs[2], "init: 0, count: 1");
-        assert_eq!(logs[3], "init: 0, count: 2");
-        assert_eq!(logs[4], "init: 1");
-        assert_eq!(logs[5], "init: 1, count: 0");
-        assert_eq!(logs[6], "init: 1, count: 1");
-        assert_eq!(logs[7], "init: 1, count: 2");
-        assert_eq!(logs[8], "init: 2");
-        assert_eq!(logs[9], "init: 2, count: 0");
-        assert_eq!(logs[10], "init: 2, count: 1");
-        assert_eq!(logs[11], "init: 2, count: 2");
+        assert_eq!(rx.try_recv(), Ok("init: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 0, count: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 0, count: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 0, count: 2".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1, count: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1, count: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 1, count: 2".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2, count: 0".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2, count: 1".to_string()));
+        assert_eq!(rx.try_recv(), Ok("init: 2, count: 2".to_string()));
+        assert_eq!(
+            rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        );
     }
 }

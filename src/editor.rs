@@ -9,6 +9,7 @@ use std::io::Read;
 use std::ops::Add;
 use std::sync::{Arc, Mutex};
 
+#[derive(PartialEq)]
 enum Tab {
     Main,
     Code,
@@ -16,6 +17,7 @@ enum Tab {
 }
 
 struct UserState {
+    log: Arc<Mutex<Vec<String>>>,
     watcher: Arc<Mutex<Option<Box<dyn super::file_watcher::Watcher + Sync + Send>>>>,
     tab: Tab,
 }
@@ -23,6 +25,7 @@ struct UserState {
 impl UserState {
     fn new() -> Self {
         Self {
+            log: Arc::new(Mutex::new(vec![])),
             watcher: Arc::new(Mutex::new(None)),
             tab: Tab::Main,
         }
@@ -33,9 +36,22 @@ pub fn editor(
     params: Arc<crate::params::PS88Params>,
     runtime: Arc<Mutex<dyn crate::runtime::runtime::ScriptRuntime + Sync + Send>>,
 ) -> Option<Box<dyn Editor>> {
+    let user_state = UserState::new();
+    let weak_log = Arc::downgrade(&user_state.log);
+    runtime
+        .lock()
+        .unwrap()
+        .add_logger(Box::new(move |log| {
+            let Some(logger) = weak_log.upgrade() else {
+                return false;
+            };
+            logger.lock().unwrap().push(log);
+            return true;
+        }))
+        .unwrap();
     create_egui_editor(
         params.editor_state.clone(),
-        UserState::new(),
+        user_state,
         |_, _| {},
         move |egui_ctx, _setter, state| {
             egui::TopBottomPanel::top("tab").show(egui_ctx, |ui| {
@@ -51,55 +67,75 @@ pub fn editor(
                     }
                 });
             });
+            if state.tab == Tab::Main || state.tab == Tab::Code {
+                egui::SidePanel::right("right_panel")
+                    .resizable(true)
+                    .exact_width(200.0)
+                    .show(egui_ctx, |ui| {
+                        ui.vertical(|ui| {
+                            if ui.button("clear").clicked() {
+                                state.log.lock().unwrap().clear();
+                            }
+                            egui::ScrollArea::vertical()
+                                .stick_to_bottom(true)
+                                .max_width(400.0)
+                                .show(ui, |ui| {
+                                    for event in state.log.lock().unwrap().iter() {
+                                        ui.label(event);
+                                    }
+                                });
+                        });
+                    });
+            }
             egui::CentralPanel::default().show(egui_ctx, |ui| match state.tab {
                 Tab::Main => {
                     ui.add(CanvasWidget(runtime.clone(), egui_ctx.clone()));
                 }
                 Tab::Code => {
-					let mut code = params.code.lock().unwrap().clone();
-					ui.horizontal(|ui| {
-						if ui.button("open").clicked() {
-							let runtime = runtime.clone();
-							let state_watcher = state.watcher.clone();
-							let param_code = params.code.clone();
-							std::thread::spawn(move || {
-								let result = rfd::FileDialog::new().pick_file();
-								if let Some(path) = result {
-									if let Ok(watcher) = load_script(&path, move |code| {
-										if let Err(err) = runtime.lock().unwrap().compile(&*code) {
-											println!("{}", err);
-										}
-										if let Ok(mut param_code) = param_code.lock() {
-											*param_code = code;
-										}
-									}) {
-										let mut state_watcher = state_watcher.lock().unwrap();
-										*state_watcher = Some(watcher);
-									}
-								}
-							});
-						}
-						let mut check = true;  // TODO
-						ui.checkbox(&mut check, "hot reload");
-						ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-							if ui.button("copy").clicked() {
-								ui.output_mut(|o| o.copied_text = code.clone());
-							}
-						});
-					});
-					egui::ScrollArea::vertical().show(ui, |ui| {
-						ui.add(
-							egui::TextEdit::multiline(&mut code)
-								.font(egui::TextStyle::Monospace)
-								.code_editor()
-								.desired_width(f32::INFINITY)
-								.interactive(false),
-						);
-					});
+                    let mut code = params.code.lock().unwrap().clone();
+                    ui.horizontal(|ui| {
+                        if ui.button("open").clicked() {
+                            let runtime = runtime.clone();
+                            let state_watcher = state.watcher.clone();
+                            let param_code = params.code.clone();
+                            std::thread::spawn(move || {
+                                let result = rfd::FileDialog::new().pick_file();
+                                if let Some(path) = result {
+                                    if let Ok(watcher) = load_script(&path, move |code| {
+                                        if let Err(err) = runtime.lock().unwrap().compile(&*code) {
+                                            println!("{}", err);
+                                        }
+                                        if let Ok(mut param_code) = param_code.lock() {
+                                            *param_code = code;
+                                        }
+                                    }) {
+                                        let mut state_watcher = state_watcher.lock().unwrap();
+                                        *state_watcher = Some(watcher);
+                                    }
+                                }
+                            });
+                        }
+                        let mut check = true;  // TODO
+                        ui.checkbox(&mut check, "hot reload");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                            if ui.button("copy").clicked() {
+                                ui.output_mut(|o| o.copied_text = code.clone());
+                            }
+                        });
+                    });
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut code)
+                                .font(egui::TextStyle::Monospace)
+                                .code_editor()
+                                .desired_width(f32::INFINITY)
+                                .interactive(false),
+                        );
+                    });
                 }
                 Tab::Market => {
                     ui.label("This feature is under development and is currently unavailable.");
-					ui.label("In the future, it will be possible to post, search, and display rankings of works.");
+                    ui.label("In the future, it will be possible to post, search, and display rankings of works.");
                 }
             });
         },
