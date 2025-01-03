@@ -25,8 +25,6 @@ pub enum JsRuntimeError {
     CompileError(String),
     #[error("failed to process: `{0}`")]
     ProcessError(String),
-    #[error("not compiled")]
-    NotCompiled,
     #[error("unexpected error: {0}")]
     UnexpectedError(String),
 }
@@ -48,6 +46,10 @@ impl JsRuntime {
 }
 
 impl runtime::ScriptRuntime for JsRuntime {
+    fn reset(&mut self) {
+        self.isolate.remove_slot::<Rc<RefCell<JsRuntimeContext>>>();
+    }
+
     fn compile(&mut self, code: &str) -> runtime::Result<()> {
         // MEMO:
         //   新しい inspector を作った後に set_slot で古い inspector を drop すると
@@ -180,7 +182,7 @@ impl runtime::ScriptRuntime for JsRuntime {
         midi: &[u8],
     ) -> runtime::Result<()> {
         let Some(runtime_context) = self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() else {
-            return Err(JsRuntimeError::NotCompiled.into());
+            return Ok(());
         };
         let context = runtime_context.clone();
         let audio_func = context.borrow_mut().audio_func.clone();
@@ -264,7 +266,7 @@ impl runtime::ScriptRuntime for JsRuntime {
         mouse: &runtime::Mouse,
     ) -> runtime::Result<Vec<runtime::Shape>> {
         let Some(runtime_context) = self.isolate.get_slot::<Rc<RefCell<JsRuntimeContext>>>() else {
-            return Err(JsRuntimeError::NotCompiled.into());
+            return Ok(vec![]);
         };
         let context = runtime_context.clone();
         let gui_func = context.borrow_mut().gui_func.clone();

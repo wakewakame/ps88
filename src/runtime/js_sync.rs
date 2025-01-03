@@ -8,6 +8,7 @@ pub struct JsRuntime {
 }
 
 enum Message {
+    Reset,
     Compile(String, std::sync::mpsc::Sender<runtime::Result<()>>),
     Audio(
         Vec<f32>,
@@ -31,6 +32,9 @@ impl JsRuntime {
             let mut runtime = js::JsRuntime::new();
             for event in message_rx {
                 match event {
+                    Message::Reset => {
+                        runtime.reset();
+                    }
                     Message::Compile(code, output_tx) => {
                         let result = runtime.compile(&code);
                         let _ = output_tx.send(result);
@@ -67,6 +71,9 @@ impl Drop for JsRuntime {
 }
 
 impl runtime::ScriptRuntime for JsRuntime {
+    fn reset(&mut self) {
+        let _ = self.message.send(Message::Reset);
+    }
     fn compile(&mut self, code: &str) -> runtime::Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.message

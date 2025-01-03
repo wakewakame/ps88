@@ -40,6 +40,7 @@ pub struct TextShape {
 }
 
 pub trait ScriptRuntime {
+    fn reset(&mut self);
     fn compile(&mut self, code: &str) -> Result<()>;
     fn audio(
         &mut self,

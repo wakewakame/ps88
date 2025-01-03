@@ -16,8 +16,14 @@ enum Tab {
     Market,
 }
 
+#[derive(PartialEq)]
+enum LogType {
+    Info,
+    Error,
+}
+
 struct UserState {
-    log: Arc<Mutex<Vec<String>>>,
+    log: Arc<Mutex<Vec<(String, LogType)>>>,
     watcher: Arc<Mutex<Option<Box<dyn super::file_watcher::Watcher + Sync + Send>>>>,
     tab: Tab,
 }
@@ -45,7 +51,7 @@ pub fn editor(
             let Some(logger) = weak_log.upgrade() else {
                 return false;
             };
-            logger.lock().unwrap().push(log);
+            logger.lock().unwrap().push((log, LogType::Info));
             return true;
         }))
         .unwrap();
@@ -80,8 +86,15 @@ pub fn editor(
                                 .stick_to_bottom(true)
                                 .max_width(400.0)
                                 .show(ui, |ui| {
-                                    for event in state.log.lock().unwrap().iter() {
-                                        ui.label(event);
+                                    for log in state.log.lock().unwrap().iter() {
+                                        ui.separator();
+                                        let color = match log.1 {
+                                            LogType::Info => egui::Color32::LIGHT_GRAY,
+                                            LogType::Error => egui::Color32::LIGHT_RED,
+                                        };
+                                        let text =
+                                            egui::RichText::from(&log.0).color(color).monospace();
+                                        ui.label(text);
                                     }
                                 });
                         });
@@ -98,12 +111,15 @@ pub fn editor(
                             let runtime = runtime.clone();
                             let state_watcher = state.watcher.clone();
                             let param_code = params.code.clone();
+                            let weak_log = Arc::downgrade(&state.log);
                             std::thread::spawn(move || {
                                 let result = rfd::FileDialog::new().pick_file();
                                 if let Some(path) = result {
                                     if let Ok(watcher) = load_script(&path, move |code| {
                                         if let Err(err) = runtime.lock().unwrap().compile(&*code) {
-                                            println!("{}", err);
+                                            if let Some(logger) = weak_log.upgrade() {
+                                                logger.lock().unwrap().push((err.to_string(), LogType::Error));
+                                            }
                                         }
                                         if let Ok(mut param_code) = param_code.lock() {
                                             *param_code = code;
@@ -166,8 +182,13 @@ impl egui::Widget for CanvasWidget {
             }
         });
         let shapes = self.0.lock().unwrap().gui(&area, &mouse);
-        let Ok(shapes) = shapes else {
-            return response;
+        let shapes = match shapes {
+            Ok(shapes) => shapes,
+            Err(err) => {
+                log::error!("failed to call gui: {}", err);
+                self.0.lock().unwrap().reset();
+                return response;
+            }
         };
 
         let mut fill_tessellator = FillTessellator::new();

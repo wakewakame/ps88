@@ -72,7 +72,7 @@ impl Plugin for PS88 {
         {
             let mut runtime = self.runtime.lock().unwrap();
             if let Err(err) = (&mut runtime).compile(&*self.params.code.lock().unwrap().clone()) {
-                println!("{}", err);
+                log::error!("{}", err);
             }
         }
         self.sample_rate = buffer_config.sample_rate;
@@ -144,7 +144,8 @@ impl Plugin for PS88 {
             let mut runtime = self.runtime.lock().unwrap();
             let sampling_rate = self.sample_rate;
             if let Err(e) = (&mut runtime).audio(&mut audio, slice.len(), sampling_rate, &midi) {
-                println!("process error: {}", e);
+                (&mut runtime).reset();
+                log::error!("{}", e);
             }
         }
 
