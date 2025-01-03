@@ -24,7 +24,9 @@ serde = { version = "1", features = ["derive"] }
 
 thiserror = "2.0.9"
 rfd = "0.15.1"
-mockall = "0.13.1"
 notify = "7.0.0"
 log = "0.4.22"
 lyon = "1.0.1"
+
+[dev-dependencies]
+mockall = "0.13.1"
