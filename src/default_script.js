@@ -6,7 +6,7 @@ const sawtooth = (rad) => {
   return 2 * (x - Math.floor(x)) - 1;
 };
 const triangle = (rad) => {
-  return sawtooth(2 * rad) * (Math.floor(rad / (2 * Math.PI)) % 2 === 0 ? 1 : -1);
+  return sawtooth(2 * rad) * (Math.floor(rad / Math.PI) % 2 === 0 ? 1 : -1);
 };
 const square = (rad) => {
   return rad % (2 * Math.PI) < Math.PI ? 1 : -1;
