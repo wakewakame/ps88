@@ -13,8 +13,8 @@ repository = "https://github.com/wakewakame/ps88"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "40269e13940689c6b5432cc16782964ae33f3d12", features = ["assert_process_allocs", "standalone"] }
-nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "40269e13940689c6b5432cc16782964ae33f3d12" }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2", features = ["assert_process_allocs", "standalone"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2" }
 
 # deno_core を参照
 # https://github.com/denoland/deno_core/blob/f43085b91cd7a6b4ae6ae4efc041bf96bae3961f/Cargo.toml#L23-L31

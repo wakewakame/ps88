@@ -34,7 +34,7 @@ TODO: 書く
 ```
 git clone https://github.com/wakewakame/ps88.git
 cd ps88
-cargo install --git https://github.com/robbert-vdh/nih-plug --rev dfafe90349aa3d8e40922ec031b6d673803d6432 xtask
+cargo install --git https://github.com/robbert-vdh/nih-plug --rev 16c6c58f4d9f08c9c515c991c218bff235cff6e2 xtask
 xtask bundle ps88 --release
 ```
 

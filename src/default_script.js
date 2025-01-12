@@ -77,9 +77,10 @@ const audio = (ctx) => {
       value[2]++;
     }
     val *= 0.8;
+    wave[index] = ctx.audio[index] * 100.0;
     ctx.audio[index] = val;
     ctx.audio[index+half] = val;
-    wave[index] = val;
+    wave[index] += val;
   }
   return 100;
 };
