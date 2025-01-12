@@ -58,7 +58,7 @@ checksum = "1be76dd654024ee690864bea328622e912847461671cee0533ddf9a2cab4a31d"
 | `LicenseRef-UFL-1.0` | **GPLv3 互換ではない** ものの、 **UFL-1.0 ライセンスではないソフトウェア** に UFL-1.0 ライセンスのフォントを埋め込むことは可能[^2][^3] であるため問題ない。 |
 | `MIT` | 両立可能[^1] |
 | `OFL-1.1` | **GPLv3 互換ではない**[^1] ものの、 **OFL-1.1 ライセンスではないソフトウェア** に OFL ライセンスのフォントを埋め込むことは可能[^4][^5] であるため問題ない。 |
-| `Unicode-DFS-2016` | 両立可能[^1] |
+| `Unicode-3.0` | 両立可能[^1] |
 | `Zlib` | 両立可能[^1] |
 
 [^1]: Various Licenses and Comments about Them: https://www.gnu.org/licenses/license-list.html
