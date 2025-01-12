@@ -64,29 +64,43 @@ pub fn editor(
                 "RobotoMono".to_string(),
                 egui::FontData::from_static(roboto_mono::ROBOTO_MONO),
             );
+            fonts.font_data.insert(
+                "MaterialSymbolsOutlined".to_string(),
+                egui::FontData::from_static(material_design_icons::MATERIAL_SYMBOLS_OUTLINED)
+                    .tweak(egui::FontTweak {
+                        scale: 1.00,
+                        y_offset_factor: 0.16,
+                        baseline_offset_factor: -0.16,
+                        ..Default::default()
+                    }),
+            );
             fonts.families.clear();
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .push("RobotoMono".to_string());
-            fonts
-                .families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .push("RobotoMono".to_string());
+            fonts.families.insert(
+                egui::FontFamily::Proportional,
+                vec![
+                    "RobotoMono".to_string(),
+                    "MaterialSymbolsOutlined".to_string(),
+                ],
+            );
+            fonts.families.insert(
+                egui::FontFamily::Monospace,
+                vec![
+                    "RobotoMono".to_string(),
+                    "MaterialSymbolsOutlined".to_string(),
+                ],
+            );
             egui_ctx.set_fonts(fonts);
         },
         move |egui_ctx, _setter, state| {
             egui::TopBottomPanel::top("tab").show(egui_ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("main").clicked() {
+                    if ui.button("\u{e037}main").clicked() {
                         state.tab = Tab::Main;
                     }
-                    if ui.button("code").clicked() {
+                    if ui.button("\u{e86f}code").clicked() {
                         state.tab = Tab::Code;
                     }
-                    if ui.button("market").clicked() {
+                    if ui.button("\u{e8b6}market").clicked() {
                         state.tab = Tab::Market
                     }
                 });

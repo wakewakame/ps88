@@ -3,6 +3,7 @@ resolver = "2"
 members = [
 	"crates/ps88",
 	"crates/assets/roboto-mono",
+	"crates/assets/material-design-icons",
 ]
 
 [workspace.package]
@@ -12,3 +13,4 @@ version = "0.1.0"
 
 [workspace.dependencies]
 roboto-mono = { path = "crates/assets/roboto-mono" }
+material-design-icons = { path = "crates/assets/material-design-icons" }

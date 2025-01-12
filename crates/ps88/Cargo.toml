@@ -14,9 +14,10 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 roboto-mono = { workspace = true }
+material-design-icons = { workspace = true }
 
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2", features = ["assert_process_allocs", "standalone"] }
-nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2" }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2", default-features = false, features = ["opengl"] }
 
 # deno_core を参照
 # https://github.com/denoland/deno_core/blob/f43085b91cd7a6b4ae6ae4efc041bf96bae3961f/Cargo.toml#L23-L31
