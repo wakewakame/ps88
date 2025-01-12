@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
 	"crates/ps88",
-	"crates/assets/roboto_mono",
+	"crates/assets/roboto-mono",
 ]
 
 [workspace.package]
@@ -11,4 +11,4 @@ license = "GPL-3.0"
 version = "0.1.0"
 
 [workspace.dependencies]
-roboto_mono = { path = "crates/assets/roboto_mono" }
+roboto-mono = { path = "crates/assets/roboto-mono" }

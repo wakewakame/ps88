@@ -13,7 +13,7 @@ repository = "https://github.com/wakewakame/ps88"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-roboto_mono = { workspace = true }
+roboto-mono = { workspace = true }
 
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "16c6c58f4d9f08c9c515c991c218bff235cff6e2" }
