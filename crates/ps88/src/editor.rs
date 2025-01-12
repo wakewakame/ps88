@@ -58,7 +58,25 @@ pub fn editor(
     create_egui_editor(
         params.editor_state.clone(),
         user_state,
-        |_, _| {},
+        |egui_ctx, _| {
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                "RobotoMono".to_string(),
+                egui::FontData::from_static(roboto_mono::ROBOTO_MONO),
+            );
+            fonts.families.clear();
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .push("RobotoMono".to_string());
+            fonts
+                .families
+                .entry(egui::FontFamily::Monospace)
+                .or_default()
+                .push("RobotoMono".to_string());
+            egui_ctx.set_fonts(fonts);
+        },
         move |egui_ctx, _setter, state| {
             egui::TopBottomPanel::top("tab").show(egui_ctx, |ui| {
                 ui.horizontal(|ui| {

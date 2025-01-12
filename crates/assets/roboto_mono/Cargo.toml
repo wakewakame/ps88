@@ -1,0 +1,6 @@
+[package]
+name = "roboto_mono"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+repository = "https://github.com/googlefonts/RobotoMono"

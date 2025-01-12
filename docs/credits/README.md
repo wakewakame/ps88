@@ -8,7 +8,7 @@ Credits (依存ライブラリのライセンス一覧) は以下のコマンド
 
 ```sh
 cargo install --locked cargo-about
-cargo about generate -m ../../Cargo.toml -o licenses.html about.hbs
+cargo about generate -m ../../crates/ps88/Cargo.toml -o licenses.html about.hbs
 ```
 
 成功すると `licenses.html` が生成されます。
