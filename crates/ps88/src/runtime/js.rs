@@ -1,10 +1,10 @@
 use crate::runtime::runtime;
+use deno_core::v8;
 use std::cell::RefCell;
 use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Once;
 use thiserror::Error;
-use v8;
 
 pub struct JsRuntime {
     isolate: v8::OwnedIsolate,
@@ -277,8 +277,8 @@ impl runtime::ScriptRuntime for JsRuntime {
         let shapes_key = v8::String::new(scope, "shapes").unwrap();
         let shapes = v8::Array::new(scope, 0);
         ctx.set(scope, shapes_key.into(), shapes.into());
-        let area = serde_v8::to_v8(scope, area).unwrap();
-        let mouse = serde_v8::to_v8(scope, mouse).unwrap();
+        let area = deno_core::serde_v8::to_v8(scope, area).unwrap();
+        let mouse = deno_core::serde_v8::to_v8(scope, mouse).unwrap();
 
         let gui_func = v8::Local::new(scope, gui_func);
         let this = v8::undefined(scope).into();
@@ -291,7 +291,7 @@ impl runtime::ScriptRuntime for JsRuntime {
                 }
             }
         };
-        match serde_v8::from_v8::<Vec<runtime::Shape>>(scope, shapes.into()) {
+        match deno_core::serde_v8::from_v8::<Vec<runtime::Shape>>(scope, shapes.into()) {
             Ok(shapes) => Ok(shapes),
             Err(err) => Err(JsRuntimeError::ProcessError(err.to_string()).into()),
         }
