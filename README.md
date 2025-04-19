@@ -35,7 +35,7 @@ TODO: 書く
 git clone https://github.com/wakewakame/ps88.git
 git submodule update --init --recursive
 cd ps88
-cargo install --git https://github.com/robbert-vdh/nih-plug --rev 16c6c58f4d9f08c9c515c991c218bff235cff6e2 xtask
+cargo install --git https://github.com/robbert-vdh/nih-plug --rev 400eb3156f221073fbcaf95607b56842272d134b xtask
 xtask bundle ps88 --release
 ```
 

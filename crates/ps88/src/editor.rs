@@ -62,7 +62,7 @@ pub fn editor(
             let mut fonts = egui::FontDefinitions::default();
             fonts.font_data.insert(
                 "RobotoMono".to_string(),
-                egui::FontData::from_static(roboto_mono::ROBOTO_MONO),
+                egui::FontData::from_static(roboto_mono::ROBOTO_MONO).into(),
             );
             fonts.font_data.insert(
                 "MaterialSymbolsOutlined".to_string(),
@@ -72,7 +72,8 @@ pub fn editor(
                         y_offset_factor: 0.16,
                         baseline_offset_factor: -0.16,
                         ..Default::default()
-                    }),
+                    })
+                    .into(),
             );
             fonts.families.clear();
             fonts.families.insert(
@@ -167,7 +168,7 @@ pub fn editor(
                         ui.checkbox(&mut check, "hot reload");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                             if ui.button("copy").clicked() {
-                                ui.output_mut(|o| o.copied_text = code.clone());
+                                ui.ctx().copy_text(code.clone());
                             }
                         });
                     });
@@ -259,13 +260,16 @@ impl egui::Widget for CanvasWidget {
                                 }),
                             )
                             .unwrap();
-                        let mesh = egui::Shape::Mesh(egui::Mesh {
-                            indices: geometry.indices,
-                            vertices: geometry.vertices,
-                            // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
-                            // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
-                            texture_id: egui::TextureId::default(),
-                        });
+                        let mesh = egui::Shape::Mesh(
+                            egui::Mesh {
+                                indices: geometry.indices,
+                                vertices: geometry.vertices,
+                                // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
+                                // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
+                                texture_id: egui::TextureId::default(),
+                            }
+                            .into(),
+                        );
                         painter.add(mesh);
                     }
                     if let Some(stroke) = polygon.stroke {
@@ -291,13 +295,16 @@ impl egui::Widget for CanvasWidget {
                                 }),
                             )
                             .unwrap();
-                        let mesh = egui::Shape::Mesh(egui::Mesh {
-                            indices: geometry.indices,
-                            vertices: geometry.vertices,
-                            // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
-                            // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
-                            texture_id: egui::TextureId::default(),
-                        });
+                        let mesh = egui::Shape::Mesh(
+                            egui::Mesh {
+                                indices: geometry.indices,
+                                vertices: geometry.vertices,
+                                // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
+                                // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
+                                texture_id: egui::TextureId::default(),
+                            }
+                            .into(),
+                        );
                         painter.add(mesh);
                     }
                 }
