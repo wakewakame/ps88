@@ -1,3 +1,4 @@
+mod api;
 mod editor;
 mod file_watcher;
 mod params;
@@ -13,6 +14,9 @@ pub struct PS88 {
     // JavaScript のランタイム
     runtime: Arc<Mutex<dyn runtime::runtime::ScriptRuntime + Sync + Send>>,
 
+    // API object
+    api: Arc<Mutex<api::Api>>,
+
     sample_rate: f32,
     time: u64,
 }
@@ -23,6 +27,7 @@ impl Default for PS88 {
             Arc::new(Mutex::new(runtime::js_sync::JsRuntime::new()));
         Self {
             params: Arc::new(params::PS88Params::default()),
+            api: Arc::new(Mutex::new(api::Api::new())),
             runtime,
             sample_rate: 1.0,
             time: 0,
