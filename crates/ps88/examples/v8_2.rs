@@ -1,20 +1,32 @@
 use deno_core::v8;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Once;
+
+pub trait Api {
+    fn register(&self) -> HashMap<String, fn(&mut Self, &mut ApiArgs)>;
+}
+
+// TODO: lifetime の指定がよくわかっていないので、あとで綺麗にしたい
+pub struct ApiArgs<'a, 'b, 'c, 'd, 'e, 'f> {
+    handle_scope: &'a mut v8::HandleScope<'b>,
+    args: &'c v8::FunctionCallbackArguments<'d>,
+    rv: &'e mut v8::ReturnValue<'f>,
+}
 
 pub struct JsRuntime<Api> {
     // isolate は api を参照しているため、drop される順番は isolate -> api とする必要がある。
     // そのため、フィールドの宣言順は isolate -> api とする。
     isolate: v8::OwnedIsolate,
-    api: Rc<Api>,
+    api: Rc<RefCell<Api>>,
 }
 
 #[derive(Clone)]
 struct JsRuntimeContext(v8::Global<v8::Context>);
 
-impl<Api> JsRuntime<Api> {
-    pub fn new(api: Rc<Api>) -> Self {
+impl<T: Api> JsRuntime<T> {
+    pub fn new(api: Rc<RefCell<T>>) -> Self {
         static PUPPY_INIT: Once = Once::new();
         PUPPY_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -29,11 +41,7 @@ impl<Api> JsRuntime<Api> {
         self.isolate.remove_slot::<JsRuntimeContext>();
     }
 
-    fn compile(
-        &mut self,
-        code: &str,
-        api_functions: impl Fn(&mut v8::HandleScope, v8::Local<v8::ObjectTemplate>),
-    ) {
+    fn compile(&mut self, code: &str) {
         self.reset();
         let context = {
             let handle_scope = &mut v8::HandleScope::new(&mut self.isolate);
@@ -44,7 +52,44 @@ impl<Api> JsRuntime<Api> {
             let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context);
             let context = v8::Local::new(scope, &context);
             let obj_t = v8::ObjectTemplate::new(scope);
-            api_functions(scope, obj_t);
+
+            // === WIP ===
+            let funcs = self.api.borrow().register();
+            for (name, _func) in funcs {
+                let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new(
+                    |handle_scope: &mut v8::HandleScope,
+                     args: v8::FunctionCallbackArguments,
+                     mut rv: v8::ReturnValue| {
+                        let name = args
+                            .data()
+                            .to_string(handle_scope)
+                            .unwrap()
+                            .to_rust_string_lossy(handle_scope);
+                        let api = args
+                            .this()
+                            .get_internal_field(handle_scope, 0)
+                            .unwrap()
+                            .cast::<v8::External>();
+                        let api = unsafe {
+                            let data = api.value().cast::<RefCell<T>>();
+                            &mut *data
+                        };
+                        let funcs = api.borrow_mut().register();
+                        let func = funcs.get(&name).unwrap();
+                        let mut args = ApiArgs {
+                            handle_scope,
+                            args: &args,
+                            rv: &mut rv,
+                        };
+                        func(&mut *api.borrow_mut(), &mut args);
+                    },
+                )
+                .data(v8::String::new(scope, &name).unwrap().into())
+                .build(scope);
+                obj_t.set(v8::String::new(scope, &name).unwrap().into(), func.into());
+            }
+            // === WIP ===
+
             obj_t.set_internal_field_count(1);
             let obj = obj_t.new_instance(scope).unwrap();
             obj.set_internal_field(
@@ -76,40 +121,38 @@ impl<Api> JsRuntime<Api> {
     }
 }
 
-struct UserData {
+struct MyApi {
     audio: Option<v8::Global<v8::Function>>,
 }
 
-impl Drop for UserData {
+impl MyApi {
+    fn audio(&mut self, args: &mut ApiArgs) {
+        let callback = args.args.get(0).cast::<v8::Function>();
+        let callback = v8::Global::new(args.handle_scope, callback);
+        self.audio = Some(callback);
+        args.rv
+            .set(v8::String::new(args.handle_scope, "ok").unwrap().into());
+    }
+}
+
+impl Api for MyApi {
+    fn register(&self) -> HashMap<String, fn(&mut Self, &mut ApiArgs)> {
+        let mut map: HashMap<String, fn(&mut Self, &mut ApiArgs)> = HashMap::new();
+        map.insert("audio".to_string(), Self::audio);
+        map
+    }
+}
+
+impl Drop for MyApi {
     fn drop(&mut self) {
-        println!("UserData dropped");
+        println!("myapi dropped");
     }
 }
 
 fn main() {
-    let data = Rc::new(RefCell::new(UserData { audio: None }));
+    let data = Rc::new(RefCell::new(MyApi { audio: None }));
     let mut app = JsRuntime::new(data.clone());
-    app.compile("ps88.audio((n) => (n + 100))", |scope, obj_t| {
-        let func = |handle_scope: &mut v8::HandleScope,
-                    args: v8::FunctionCallbackArguments,
-                    mut rv: v8::ReturnValue| {
-            let data = args
-                .this()
-                .get_internal_field(handle_scope, 0)
-                .unwrap()
-                .cast::<v8::External>();
-            let data = unsafe {
-                let data = data.value().cast::<RefCell<UserData>>();
-                &mut *data
-            };
-            let callback = args.get(0).cast::<v8::Function>();
-            let callback = v8::Global::new(handle_scope, callback);
-            data.borrow_mut().audio = Some(callback);
-            rv.set(v8::String::new(handle_scope, "ok").unwrap().into());
-        };
-        let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new(func).build(scope);
-        obj_t.set(v8::String::new(scope, "audio").unwrap().into(), func.into());
-    });
+    app.compile("ps88.audio((n) => (n + 100))");
 
     {
         let data = data.borrow_mut();
