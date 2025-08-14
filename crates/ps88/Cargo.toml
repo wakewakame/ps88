@@ -18,7 +18,7 @@ material-design-icons = { workspace = true }
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "400eb3156f221073fbcaf95607b56842272d134b", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "400eb3156f221073fbcaf95607b56842272d134b", default-features = false, features = ["opengl"] }
 serde = { version = "1", features = ["derive"] }
-deno_core = "0.347.0"
+deno_core = "0.355.0"
 thiserror = "2.0.9"
 rfd = "0.15.1"
 notify = "7.0.0"
