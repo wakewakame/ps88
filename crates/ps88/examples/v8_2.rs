@@ -1,3 +1,10 @@
+/*
+TODO
+- unwrap を使わないようにする
+- テストを書く
+- console.log を使えるようにする
+*/
+
 use deno_core::v8;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -6,11 +13,13 @@ use std::sync::Once;
 
 // JavaScript の実行環境
 struct JsRuntime<Status> {
+    // NOTE: context は isolate に紐づくので、context は isolate より先に drop される必要がある
+    context: v8::Global<v8::Context>,
+
+    // NOTE: isolate は間接的に status の生ポインタを参照しているため、isolate は status より先に drop される必要がある
     isolate: v8::OwnedIsolate,
 
     // Rust 側のコールバック関数に渡すステータス情報
-    // `isolate` は `status` を参照しているため、drop される順番は `isolate` が先である必要がある。
-    // そのため、フィールドの宣言順は `isolate` の後に `status` を書く必要がある。
     status: Status,
 }
 
@@ -22,70 +31,62 @@ impl<Status> JsRuntime<Status> {
             v8::V8::initialize_platform(platform);
             v8::V8::initialize();
         });
-        let isolate = v8::Isolate::new(Default::default());
-        Self { isolate, status }
+        let mut isolate = v8::Isolate::new(Default::default());
+        let context = {
+            let handle_scope = &mut v8::HandleScope::new(&mut isolate);
+            let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
+            v8::Global::new(handle_scope, context)
+        };
+        Self {
+            context,
+            isolate,
+            status,
+        }
     }
 
-    fn compile(&mut self, api: &Api<Status>, code: &str) {
-        // 古いコンテキストが確実に drop されるようスロットを削除
-        self.isolate.remove_slot::<JsRuntimeContext>();
-
-        // 新しいコンテキストを作成
-        let context = {
+    // JavaScript の実行環境をリセット
+    fn reset(&mut self) {
+        //self.isolate
+        //    .memory_pressure_notification(v8::MemoryPressureLevel::Critical);
+        self.context = {
             let handle_scope = &mut v8::HandleScope::new(&mut self.isolate);
             let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
             v8::Global::new(handle_scope, context)
         };
-
-        // コンテキストに `api` を登録
-        {
-            let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context);
-            let context = v8::Local::new(scope, &context);
-            let obj_t = v8::ObjectTemplate::new(scope);
-            let status = v8::External::new(
-                scope,
-                &mut self.status as *mut Status as *mut std::ffi::c_void,
-            );
-            for (name, func) in api.callbacks.iter() {
-                let name = v8::String::new(scope, name).unwrap();
-                let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
-                    .data(status.into())
-                    .build(scope);
-                obj_t.set(name.into(), func.into());
-            }
-            let obj = obj_t.new_instance(scope).unwrap();
-            let key = v8::String::new(scope, &api.name).unwrap();
-            context.global(scope).set(scope, key.into(), obj.into());
-        }
-
-        // コンテキスト上で `code` を実行
-        {
-            let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &context);
-            let code = v8::String::new(scope, code).unwrap();
-            let script = v8::Script::compile(scope, code, None).unwrap();
-            script.run(scope).unwrap();
-        }
-
-        // 新しいコンテキストをスロットに保存
-        self.isolate.set_slot(JsRuntimeContext(context));
     }
 
-    fn context(&self) -> v8::Global<v8::Context> {
-        self.isolate
-            .get_slot::<JsRuntimeContext>()
-            .unwrap()
-            .0
-            .clone()
+    // api のコールバック関数を登録
+    fn add_api(&mut self, name: &str, api: &Api<Status>) {
+        let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
+        let context = v8::Local::new(scope, &self.context);
+        let obj_t = v8::ObjectTemplate::new(scope);
+        let status = v8::External::new(
+            scope,
+            &mut self.status as *mut Status as *mut std::ffi::c_void,
+        );
+        for (name, func) in api.callbacks.iter() {
+            let name = v8::String::new(scope, name).unwrap();
+            let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
+                .data(status.into())
+                .build(scope);
+            obj_t.set(name.into(), func.into());
+        }
+        let obj = obj_t.new_instance(scope).unwrap();
+        let name = v8::String::new(scope, &name).unwrap();
+        context.global(scope).set(scope, name.into(), obj.into());
+    }
+
+    // スクリプトを実行
+    fn run(&mut self, code: &str) {
+        let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
+        let code = v8::String::new(scope, code).unwrap();
+        let script = v8::Script::compile(scope, code, None).unwrap();
+        script.run(scope).unwrap();
     }
 }
 
-struct JsRuntimeContext(v8::Global<v8::Context>);
-
 // JavaScript 側から呼び出される関数を登録するための構造体
 struct Api<Status> {
-    // JavaScript に登録される変数名
-    name: String,
-
     // JavaScript 側から呼び出される関数
     // 安全性: 呼び出し側は以下の 2 点を保証する必要がある
     // 1. 引数 `info: *const FunctionCallbackInfo` には有効なポインタを渡す
@@ -98,9 +99,8 @@ struct Api<Status> {
 }
 
 impl<Status> Api<Status> {
-    fn new(name: String) -> Self {
+    fn new() -> Self {
         Self {
-            name,
             callbacks: HashMap::new(),
             _phantom: std::marker::PhantomData,
         }
@@ -189,13 +189,14 @@ fn main() {
     let data = MyStatus {
         audio: audio.clone(),
     };
-    let api = Api::new("ps88".to_string()).add("audio", MyStatus::audio);
+    let api = Api::new().add("audio", MyStatus::audio);
     let mut app = JsRuntime::new(data);
-    app.compile(&api, "ps88.audio((n) => (n + 100))");
+    app.reset();
+    app.add_api("ps88", &api);
+    app.run("let a = 100; ps88.audio((n) => (n + a));");
 
     {
-        let context = app.context();
-        let scope = &mut v8::HandleScope::with_context(&mut app.isolate, &context);
+        let scope = &mut v8::HandleScope::with_context(&mut app.isolate, &app.context);
         let audio = audio.borrow_mut();
         let callback = v8::Local::new(scope, audio.as_ref().unwrap());
         let this = v8::undefined(scope).into();
@@ -206,5 +207,6 @@ fn main() {
             result.try_cast::<v8::Number>().unwrap().value()
         );
     }
+
     drop(app);
 }
