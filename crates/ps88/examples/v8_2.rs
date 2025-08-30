@@ -1,6 +1,5 @@
 /*
 TODO
-- unwrap を使わないようにする
 - テストを書く
 */
 
@@ -9,6 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Once;
+use thiserror::Error;
 
 // JavaScript の実行環境
 struct JsRuntime<Status> {
@@ -24,7 +24,7 @@ struct JsRuntime<Status> {
 }
 
 impl<Status> JsRuntime<Status> {
-    pub fn new(status: Status) -> Self {
+    fn new(status: Status) -> Self {
         static PUPPY_INIT: Once = Once::new();
         PUPPY_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -73,7 +73,7 @@ impl<Status> JsRuntime<Status> {
     }
 
     // api のコールバック関数を登録
-    fn add_api(&mut self, name: &str, api: &Api<Status>) {
+    fn add_api(&mut self, name: &str, api: &Api<Status>) -> Result<()> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
         let context = v8::Local::new(scope, &self.context);
         let obj_t = v8::ObjectTemplate::new(scope);
@@ -82,24 +82,69 @@ impl<Status> JsRuntime<Status> {
             &mut self.status as *mut Status as *mut std::ffi::c_void,
         );
         for (name, func) in api.callbacks.iter() {
-            let name = v8::String::new(scope, name).unwrap();
+            let Some(name) = v8::String::new(scope, name) else {
+                return Err(Box::new(JsRuntimeError::UnexpectedError(format!(
+                    "failed to create string: {}",
+                    name
+                ))));
+            };
             let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
                 .data(status.into())
                 .build(scope);
             obj_t.set(name.into(), func.into());
         }
-        let obj = obj_t.new_instance(scope).unwrap();
-        let name = v8::String::new(scope, &name).unwrap();
+        let Some(obj) = obj_t.new_instance(scope) else {
+            return Err(Box::new(JsRuntimeError::UnexpectedError(
+                "failed to create api object".to_string(),
+            )));
+        };
+        let Some(name) = v8::String::new(scope, &name) else {
+            return Err(Box::new(JsRuntimeError::UnexpectedError(format!(
+                "failed to create string: {}",
+                name
+            ))));
+        };
         context.global(scope).set(scope, name.into(), obj.into());
+        Ok(())
     }
 
     // スクリプトを実行
-    fn run(&mut self, code: &str) {
+    fn run(&mut self, code: &str) -> Result<()> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-        let code = v8::String::new(scope, code).unwrap();
-        let script = v8::Script::compile(scope, code, None).unwrap();
-        script.run(scope).unwrap();
+        let Some(code) = v8::String::new(scope, code) else {
+            return Err(Box::new(JsRuntimeError::UnexpectedError(
+                "failed to create script string".to_string(),
+            )));
+        };
+        let try_catch = &mut v8::TryCatch::new(scope);
+        let Some(script) = v8::Script::compile(try_catch, code, None) else {
+            return Err(Box::new(JsRuntimeError::CompileError(report_exceptions(
+                try_catch,
+            ))));
+        };
+        let Some(_) = script.run(try_catch) else {
+            return Err(Box::new(JsRuntimeError::ProcessError(report_exceptions(
+                try_catch,
+            ))));
+        };
+        Ok(())
     }
+
+    fn scope(&mut self) -> v8::HandleScope {
+        v8::HandleScope::with_context(&mut self.isolate, &self.context)
+    }
+}
+
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+
+#[derive(Debug, Error)]
+enum JsRuntimeError {
+    #[error("failed to compile: `{0}`")]
+    CompileError(String),
+    #[error("failed to process: `{0}`")]
+    ProcessError(String),
+    #[error("unexpected error: {0}")]
+    UnexpectedError(String),
 }
 
 // JavaScript 側から呼び出される関数を登録するための構造体
@@ -250,17 +295,91 @@ impl v8::inspector::V8InspectorClientImpl for InspectorClient {
     }
 }
 
+// TryCatch からエラー情報を文字列に変換する
+fn report_exceptions(try_catch: &mut v8::TryCatch<v8::HandleScope>) -> String {
+    let mut description = Vec::<String>::new();
+    let Some(exception) = try_catch.exception() else {
+        return "no error".into();
+    };
+    let Some(exception_string) = exception.to_string(try_catch) else {
+        return "unexpected error".into();
+    };
+    let exception_string = exception_string.to_rust_string_lossy(try_catch);
+    let Some(message) = try_catch.message() else {
+        return exception_string;
+    };
+
+    // 該当箇所の出力
+    // e.g.
+    //   main.js:5: SyntaxError: Unexpected token '=='
+    let filename = message
+        .get_script_resource_name(try_catch)
+        .and_then(|s| s.to_string(try_catch))
+        .map(|s| s.to_rust_string_lossy(try_catch))
+        .unwrap_or("(unknown)".into());
+    let line_number = message
+        .get_line_number(try_catch)
+        .map(|n| n.to_string())
+        .unwrap_or("(unknown)".into());
+    description.push(format!(
+        "{}:{}: {}",
+        filename, line_number, exception_string
+    ));
+
+    // 該当箇所のコードを出力
+    // e.g.
+    //   let a == 1;
+    //         ^^
+    if let Some(source_line) = message.get_source_line(try_catch) {
+        let source_line = source_line.to_rust_string_lossy(try_catch);
+        let start_column = message.get_start_column();
+        let end_column = message.get_end_column();
+        description.push(format!(
+            "\n{}\n{}{}\n",
+            source_line,
+            " ".repeat(start_column),
+            "^".repeat(end_column - start_column)
+        ));
+    }
+
+    // スタックトレースを出力
+    // e.g.
+    //   Error: aaa
+    //       at f3 (<anonymous>:4:26)
+    //       at f2 (<anonymous>:3:20)
+    //       at f1 (<anonymous>:2:20)
+    //       at main (<anonymous>:1:22)
+    //       at <anonymous>:5:1
+    if let Some(stack_trace) = try_catch
+        .stack_trace()
+        .and_then(|s| s.to_string(try_catch))
+        .map(|s| s.to_rust_string_lossy(try_catch))
+    {
+        description.push(format!("{}", stack_trace));
+    }
+
+    return description.join("\n");
+}
+
 struct MyStatus {
     audio: Rc<RefCell<Option<v8::Global<v8::Function>>>>,
 }
 
 impl MyStatus {
     fn audio(&self, mut info: CallbackInfo) {
-        let callback = info.args.get(0).try_cast::<v8::Function>().unwrap();
+        let callback = match info.args.get(0).try_cast::<v8::Function>() {
+            Ok(callback) => callback,
+            Err(_) => {
+                let msg = v8::String::new(info.scope, "argument must be a function")
+                    .unwrap_or(v8::String::empty(info.scope));
+                let err = v8::Exception::type_error(info.scope, msg);
+                info.scope.throw_exception(err);
+                return;
+            }
+        };
         let callback = v8::Global::new(info.scope, callback);
         *self.audio.borrow_mut() = Some(callback);
-        info.rv
-            .set(v8::String::new(info.scope, "ok").unwrap().into());
+        info.rv.set(v8::Number::new(info.scope, 123f64).into());
     }
 }
 
@@ -281,20 +400,37 @@ fn main() {
     app.set_logger(|msg| {
         println!("Console log: {}", msg);
     });
-    app.add_api("ps88", &api);
-    app.run("let a = 100; ps88.audio((n) => (n + a)); console.log('hogehoge');");
+    if let Err(e) = app.add_api("ps88", &api) {
+        eprintln!("Failed to add api: {}", e);
+        return;
+    }
+    if let Err(e) = app.run("let a = 100; let b = ps88.audio((n) => (n + a)); console.log(b);") {
+        eprintln!("Failed to run script: {}", e);
+        return;
+    }
 
     {
-        let scope = &mut v8::HandleScope::with_context(&mut app.isolate, &app.context);
+        let scope = &mut app.scope();
         let audio = audio.borrow_mut();
-        let callback = v8::Local::new(scope, audio.as_ref().unwrap());
+        let Some(audio) = audio.as_ref() else {
+            eprintln!("audio callback is not set");
+            return;
+        };
+        let callback = v8::Local::new(scope, audio);
         let this = v8::undefined(scope).into();
         let arg = v8::Number::new(scope, 42f64).into();
-        let result = callback.call(scope, this, &[arg]).unwrap();
-        println!(
-            "Callback result: {:?}",
-            result.try_cast::<v8::Number>().unwrap().value()
-        );
+        let Some(result) = callback.call(scope, this, &[arg]) else {
+            eprintln!("Failed to call audio callback");
+            return;
+        };
+        let result = match result.try_cast::<v8::Number>() {
+            Ok(result) => result.value(),
+            Err(e) => {
+                eprintln!("Callback result is not a number: {}", e);
+                return;
+            }
+        };
+        println!("Callback result: {:?}", result);
     }
 
     drop(app);
