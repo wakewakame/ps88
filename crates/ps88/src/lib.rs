@@ -1,6 +1,7 @@
 mod api;
 mod editor;
 mod file_watcher;
+pub mod js;
 mod params;
 mod runtime;
 
