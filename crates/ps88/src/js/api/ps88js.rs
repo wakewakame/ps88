@@ -75,12 +75,12 @@ impl PS88JsRuntime {
     pub fn audio(
         &mut self,
         audio: &mut [&mut [f32]], // audio[ch][sample]
-        _sampling_rate: f32,
+        sampling_rate: f32,
         midi: &mut Vec<[u8; 7]>,
     ) -> Result<()> {
-        let status = self.status.borrow();
-        let audio_callback = &status.audio_callback;
-        let Some(audio_callback) = audio_callback.as_ref() else {
+        let mut status = self.status.borrow_mut();
+        let audio_callback = &mut status.audio_callback;
+        let Some(callback) = audio_callback.as_ref() else {
             return Ok(());
         };
 
@@ -115,7 +115,12 @@ impl PS88JsRuntime {
                 .collect::<Vec<v8::Local<v8::Value>>>()
                 .as_slice(),
         );
+
+        // midi を v8 に変換
         let midi_js = wrap_err(serde_v8::to_v8(scope, midi.clone()))?;
+
+        // sampling_rate を v8 に変換
+        let sampling_rate = v8::Number::new(scope, sampling_rate as f64);
 
         // 引数を用意
         let arg = v8::Object::new(scope);
@@ -123,13 +128,16 @@ impl PS88JsRuntime {
         arg.set(scope, key, audio_js.into());
         let key = v8str(scope, "midi")?.into();
         arg.set(scope, key, midi_js.into());
+        let key = v8str(scope, "sampling_rate")?.into();
+        arg.set(scope, key, sampling_rate.into());
 
         // callback 呼び出し
-        let audio_callback = v8::Local::new(scope, audio_callback);
+        let callback = v8::Local::new(scope, callback);
         let this = v8::undefined(scope).into();
         {
             let try_catch = &mut v8::TryCatch::new(scope);
-            let Some(_) = audio_callback.call(try_catch, this, &[arg.into()]) else {
+            let Some(_) = callback.call(try_catch, this, &[arg.into()]) else {
+                audio_callback.take();
                 return Err(JsRuntimeError::RuntimeError(report_exceptions(try_catch)));
             };
         }
@@ -178,16 +186,42 @@ impl PS88JsRuntime {
 
 #[cfg(test)]
 mod tests {
-    /*
     use super::*;
 
     #[test]
     fn test_audio() {
-        use std::sync::mpsc::channel;
-        let (tx, rx) = channel();
-        let mut rt = PS88JsRuntime::new(|msg| {
-            tx.send(msg).unwrap();
-        });
+        let mut rt = PS88JsRuntime::new(|_| {});
+        rt.compile(
+            r#"ps88.audio((arg) => {
+    if (arg.sampling_rate !== 48000.0) {
+        throw new Error("sampling_rate must be 48000.0");
     }
-    */
+    let audio = arg.audio;
+    let midi = arg.midi;
+    for (let ch = 0; ch < audio.length; ch++) {
+        for (let i = 0; i < audio[ch].length; i++) {
+            audio[ch][i] *= 2.0;
+        }
+    }
+    for (let ev = 0; ev < midi.length; ev++) {
+        midi[ev][6] += 10;
+    }
+    midi.push([0, 0, 0, 0, 0x80, 57, 30]);
+});"#,
+        )
+        .unwrap();
+        let mut audio = vec![vec![0.1f32, 0.2, 0.3], vec![0.4, 0.5, 0.6]];
+        let mut midi = vec![[0, 0, 0, 0, 0x80, 69, 10]];
+        let mut audio_slice = audio
+            .iter_mut()
+            .map(|ch| ch.as_mut_slice())
+            .collect::<Vec<_>>();
+        rt.audio(audio_slice.as_mut_slice(), 48000.0, &mut midi)
+            .unwrap();
+        assert_eq!(audio, vec![vec![0.2f32, 0.4, 0.6], vec![0.8, 1.0, 1.2]]);
+        assert_eq!(
+            midi,
+            vec![[0, 0, 0, 0, 0x80, 69, 20], [0, 0, 0, 0, 0x80, 57, 30]]
+        );
+    }
 }
