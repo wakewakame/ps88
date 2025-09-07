@@ -6,8 +6,6 @@ use deno_core::v8;
 use std::cell::RefCell;
 use std::sync::Once;
 
-pub type Result<T> = std::result::Result<T, JsRuntimeError>;
-
 // JavaScript の実行環境
 pub struct JsRuntime<A: Api> {
     // NOTE: _inspector と context は isolate に紐づくので、これらは isolate より先に drop される必要がある
@@ -86,12 +84,7 @@ impl<A: Api> JsRuntime<A> {
             &mut self.api as *mut RefCell<A> as *mut std::ffi::c_void,
         );
         for (name, func) in callbacks.callbacks.iter() {
-            let Some(name) = v8::String::new(scope, name) else {
-                return Err(JsRuntimeError::UnexpectedError(format!(
-                    "failed to create string: {}",
-                    name
-                )));
-            };
+            let name = v8str(scope, name)?;
             let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
                 .data(api.into())
                 .build(scope);
@@ -102,12 +95,7 @@ impl<A: Api> JsRuntime<A> {
                 "failed to create api object".to_string(),
             ));
         };
-        let Some(name) = v8::String::new(scope, &name) else {
-            return Err(JsRuntimeError::UnexpectedError(format!(
-                "failed to create string: {}",
-                name
-            )));
-        };
+        let name = v8str(scope, name)?;
         context.global(scope).set(scope, name.into(), obj.into());
         Ok(())
     }
@@ -115,11 +103,7 @@ impl<A: Api> JsRuntime<A> {
     // スクリプトを実行
     pub fn run(&mut self, code: &str) -> Result<v8::Local<v8::Value>> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-        let Some(code) = v8::String::new(scope, code) else {
-            return Err(JsRuntimeError::UnexpectedError(
-                "failed to create script string".to_string(),
-            ));
-        };
+        let code = v8str(scope, code)?;
         let try_catch = &mut v8::TryCatch::new(scope);
         let Some(script) = v8::Script::compile(try_catch, code, None) else {
             return Err(JsRuntimeError::CompileError(report_exceptions(try_catch)));

@@ -1,4 +1,18 @@
+use super::error::*;
 use deno_core::v8;
+
+pub fn v8str<'s>(
+    scope: &mut v8::HandleScope<'s, ()>,
+    s: &str,
+) -> Result<v8::Local<'s, v8::String>> {
+    let Some(name) = v8::String::new(scope, s) else {
+        return Err(JsRuntimeError::UnexpectedError(format!(
+            "failed to create string: {}",
+            s
+        )));
+    };
+    Ok(name)
+}
 
 // TryCatch からエラー情報を文字列に変換する
 pub fn report_exceptions(try_catch: &mut v8::TryCatch<v8::HandleScope>) -> String {

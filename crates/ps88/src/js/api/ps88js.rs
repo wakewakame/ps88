@@ -115,13 +115,13 @@ impl PS88JsRuntime {
                 .collect::<Vec<v8::Local<v8::Value>>>()
                 .as_slice(),
         );
-        let midi_js = serde_v8::to_v8(scope, midi.clone()).unwrap();
+        let midi_js = wrap_err(serde_v8::to_v8(scope, midi.clone()))?;
 
         // 引数を用意
         let arg = v8::Object::new(scope);
-        let key = v8::String::new(scope, "audio").unwrap().into();
+        let key = v8str(scope, "audio")?.into();
         arg.set(scope, key, audio_js.into());
-        let key = v8::String::new(scope, "midi").unwrap().into();
+        let key = v8str(scope, "midi")?.into();
         arg.set(scope, key, midi_js.into());
 
         // callback 呼び出し
@@ -174,4 +174,20 @@ impl PS88JsRuntime {
         self.runtime.set_logger(self.logger);
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    /*
+    use super::*;
+
+    #[test]
+    fn test_audio() {
+        use std::sync::mpsc::channel;
+        let (tx, rx) = channel();
+        let mut rt = PS88JsRuntime::new(|msg| {
+            tx.send(msg).unwrap();
+        });
+    }
+    */
 }
