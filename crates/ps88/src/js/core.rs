@@ -7,3 +7,4 @@ mod utils;
 pub use api::*;
 pub use error::*;
 pub use runtime::*;
+pub use utils::*;
