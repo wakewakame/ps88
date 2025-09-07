@@ -2,29 +2,29 @@ use deno_core::v8;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-pub trait Status {
+pub trait Api {
     // v8 の Context が切り替わったときに呼び出される関数
-    // Status が v8 の変数を保持している場合、この関数が呼び出された時はそれらを解放する必要がある。
+    // Api が v8 の変数を保持している場合、この関数が呼び出された時はそれらを解放する必要がある。
     fn reset(&mut self);
 }
-impl Status for () {
+impl Api for () {
     fn reset(&mut self) {}
 }
 
 // JavaScript 側から呼び出される関数を登録するための構造体
-pub struct Api<S: Status> {
+pub struct Callbacks<A: Api> {
     // JavaScript 側から呼び出される関数
     // 安全性: 呼び出し側は以下の 2 点を保証する必要がある
     // 1. 引数 `info: *const FunctionCallbackInfo` には有効なポインタを渡す
-    // 2. 引数 `info.args.data()` には `&S` を `v8::External` で囲った値が返るようにする
+    // 2. 引数 `info.args.data()` には `&A` を `v8::External` で囲った値が返るようにする
     pub(super) callbacks: HashMap<String, v8::FunctionCallback>,
 
-    // S 型を保持するためのフィールド
-    // S 型を保持する理由は `add()` で間違った型の関数が登録されることを防ぐため。
-    _phantom: std::marker::PhantomData<S>,
+    // A 型を保持するためのフィールド
+    // A 型を保持する理由は `add()` で間違った型の関数が登録されることを防ぐため。
+    _phantom: std::marker::PhantomData<A>,
 }
 
-impl<S: Status> Api<S> {
+impl<A: Api> Callbacks<A> {
     pub fn new() -> Self {
         Self {
             callbacks: HashMap::new(),
@@ -33,7 +33,7 @@ impl<S: Status> Api<S> {
     }
 
     // JavaScript 側から呼び出される関数を登録する
-    pub fn add<F: Fn(&mut S, CallbackInfo) + Sized>(mut self, name: &str, _: F) -> Self {
+    pub fn add<F: Fn(&mut A, CallbackInfo) + Sized>(mut self, name: &str, _: F) -> Self {
         // 関数の型をチェックする
         const {
             assert!(
@@ -53,7 +53,7 @@ impl<S: Status> Api<S> {
         //     }
         // );
         // ```
-        unsafe extern "C" fn f<S, F: Fn(&mut S, CallbackInfo) + Sized>(
+        unsafe extern "C" fn f<A, F: Fn(&mut A, CallbackInfo) + Sized>(
             info: *const v8::FunctionCallbackInfo,
         ) {
             // 引数を取り出す
@@ -65,10 +65,10 @@ impl<S: Status> Api<S> {
             let rv = v8::ReturnValue::from_function_callback_info(info);
             let info = CallbackInfo { scope, args, rv };
 
-            // `info.args.data()` から `&S` を取り出す
-            // 安全性: `info.args.data()` に &RefCell<S> が格納されていることは呼び出し側が保証する
+            // `info.args.data()` から `&A` を取り出す
+            // 安全性: `info.args.data()` に &RefCell<A> が格納されていることは呼び出し側が保証する
             let status = info.args.data().try_cast::<v8::External>().unwrap();
-            let status = status.value().cast::<RefCell<S>>();
+            let status = status.value().cast::<RefCell<A>>();
             let status = unsafe { &*status };
             let status = &mut *status.borrow_mut();
 
@@ -80,7 +80,7 @@ impl<S: Status> Api<S> {
             // コールバック関数を呼び出す
             f(status, info);
         }
-        self.callbacks.insert(name.to_string(), f::<S, F>);
+        self.callbacks.insert(name.to_string(), f::<A, F>);
         self
     }
 }

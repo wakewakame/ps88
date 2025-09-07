@@ -5,11 +5,11 @@ use std::rc::Rc;
 
 // === ここからユーザーコード ===
 
-struct MyStatus {
+struct MyApi {
     audio_callback: Rc<RefCell<Option<v8::Global<v8::Function>>>>,
 }
 
-impl MyStatus {
+impl MyApi {
     fn audio(&mut self, mut info: CallbackInfo) {
         let callback = match info.args.get(0).try_cast::<v8::Function>() {
             Ok(callback) => callback,
@@ -27,15 +27,15 @@ impl MyStatus {
     }
 }
 
-impl Status for MyStatus {
+impl Api for MyApi {
     fn reset(&mut self) {
         self.audio_callback.borrow_mut().take();
     }
 }
 
-impl Drop for MyStatus {
+impl Drop for MyApi {
     fn drop(&mut self) {
-        println!("MyStatus dropped");
+        println!("MyApi dropped");
     }
 }
 
@@ -144,16 +144,16 @@ impl MyRuntime {
 
 fn main() {
     let audio = Rc::new(RefCell::new(None));
-    let data = MyStatus {
+    let data = MyApi {
         audio_callback: audio.clone(),
     };
-    let api = Api::new().add("audio", MyStatus::audio);
+    let callbacks = Callbacks::new().add("audio", MyApi::audio);
     let mut app = JsRuntime::new(data);
     app.reset();
     app.set_logger(|msg| {
         println!("Console log: {}", msg);
     });
-    if let Err(e) = app.add_api("ps88", &api) {
+    if let Err(e) = app.add_callbacks("ps88", &callbacks) {
         eprintln!("Failed to add api: {}", e);
         return;
     }

@@ -9,20 +9,25 @@ use std::sync::Once;
 pub type Result<T> = std::result::Result<T, JsRuntimeError>;
 
 // JavaScript の実行環境
-pub struct JsRuntime<S: Status> {
+pub struct JsRuntime<A: Api> {
     // NOTE: _inspector と context は isolate に紐づくので、これらは isolate より先に drop される必要がある
     _inspector: Option<Inspector>,
     context: v8::Global<v8::Context>,
 
-    // NOTE: isolate は間接的に status の生ポインタを参照しているため、isolate は status より先に drop される必要がある
+    // NOTE: isolate は間接的に api の生ポインタを参照しているため、isolate は aip より先に drop される必要がある
     isolate: v8::OwnedIsolate,
 
     // Rust 側のコールバック関数に渡すステータス情報
-    status: RefCell<S>,
+    api: RefCell<A>,
 }
 
-impl<S: Status> JsRuntime<S> {
-    pub fn new(status: S) -> Self {
+// TODO:
+// 設計をリファクタリングしたい
+// - reset しても logger や api の設定がリセットされないようにしたい
+// - set_logger() や add_callbacks() は削除して、JsRuntime::new() の引数で logger や api を渡せるようにしたい
+// - JsRuntimeBuilder のようなビルダーパターンを導入して、logger や api を設定できるようにしたい
+impl<A: Api> JsRuntime<A> {
+    pub fn new(api: A) -> Self {
         static PUPPY_INIT: Once = Once::new();
         PUPPY_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -39,14 +44,14 @@ impl<S: Status> JsRuntime<S> {
             _inspector: None,
             context,
             isolate,
-            status: RefCell::new(status),
+            api: RefCell::new(api),
         }
     }
 
     // JavaScript の実行環境をリセット
     // set_logger() や add_api() の設定もリセットされる。
     pub fn reset(&mut self) {
-        self.status.borrow_mut().reset();
+        self.api.borrow_mut().reset();
         self._inspector = None;
         self.context = {
             let handle_scope = &mut v8::HandleScope::new(&mut self.isolate);
@@ -72,15 +77,15 @@ impl<S: Status> JsRuntime<S> {
     }
 
     // api のコールバック関数を登録
-    pub fn add_api(&mut self, name: &str, api: &Api<S>) -> Result<()> {
+    pub fn add_callbacks(&mut self, name: &str, callbacks: &Callbacks<A>) -> Result<()> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
         let context = v8::Local::new(scope, &self.context);
         let obj_t = v8::ObjectTemplate::new(scope);
-        let status = v8::External::new(
+        let api = v8::External::new(
             scope,
-            &mut self.status as *mut RefCell<S> as *mut std::ffi::c_void,
+            &mut self.api as *mut RefCell<A> as *mut std::ffi::c_void,
         );
-        for (name, func) in api.callbacks.iter() {
+        for (name, func) in callbacks.callbacks.iter() {
             let Some(name) = v8::String::new(scope, name) else {
                 return Err(JsRuntimeError::UnexpectedError(format!(
                     "failed to create string: {}",
@@ -88,7 +93,7 @@ impl<S: Status> JsRuntime<S> {
                 )));
             };
             let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
-                .data(status.into())
+                .data(api.into())
                 .build(scope);
             obj_t.set(name.into(), func.into());
         }
@@ -189,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_api() {
+    fn test_add_callbacks() {
         // テスト用のカウント API を定義
         struct Counter<'a> {
             count: f64,
@@ -207,7 +212,7 @@ mod tests {
                 info.rv.set(v8::Number::new(info.scope, self.count).into());
             }
         }
-        impl<'a> Status for Counter<'a> {
+        impl<'a> Api for Counter<'a> {
             fn reset(&mut self) {
                 self.count = 0f64;
             }
@@ -225,8 +230,8 @@ mod tests {
             dropped: &mut dropped,
         };
         let mut rt = JsRuntime::new(counter);
-        let api = Api::new().add("add", Counter::add);
-        rt.add_api("counter", &api).unwrap();
+        let callbacks = Callbacks::new().add("add", Counter::add);
+        rt.add_callbacks("counter", &callbacks).unwrap();
 
         // counter.add を呼び出せる
         let result = rt.run("counter.add(1);");
@@ -245,8 +250,8 @@ mod tests {
         let result = rt.run("counter.add(1);");
         assert!(matches!(result, Err(JsRuntimeError::RuntimeError(_))));
 
-        // reset 後も add_api() は問題なく動く
-        rt.add_api("counter", &api).unwrap();
+        // reset 後も add_callbacks() は問題なく動く
+        rt.add_callbacks("counter", &callbacks).unwrap();
         let result = rt.run("counter.add(1);");
         let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
         assert_eq!(result, 1f64);
