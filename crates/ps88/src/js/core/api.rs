@@ -1,20 +1,30 @@
 use deno_core::v8;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
+pub trait Status {
+    // v8 の Context が切り替わったときに呼び出される関数
+    // Status が v8 の変数を保持している場合、この関数が呼び出された時はそれらを解放する必要がある。
+    fn reset(&mut self);
+}
+impl Status for () {
+    fn reset(&mut self) {}
+}
+
 // JavaScript 側から呼び出される関数を登録するための構造体
-pub struct Api<Status> {
+pub struct Api<S: Status> {
     // JavaScript 側から呼び出される関数
     // 安全性: 呼び出し側は以下の 2 点を保証する必要がある
     // 1. 引数 `info: *const FunctionCallbackInfo` には有効なポインタを渡す
-    // 2. 引数 `info.args.data()` には `&Status` を `v8::External` で囲った値が返るようにする
+    // 2. 引数 `info.args.data()` には `&S` を `v8::External` で囲った値が返るようにする
     pub(super) callbacks: HashMap<String, v8::FunctionCallback>,
 
-    // Status 型を保持するためのフィールド
-    // Status 型を保持する理由は `add()` で間違った型の関数が登録されることを防ぐため。
-    _phantom: std::marker::PhantomData<Status>,
+    // S 型を保持するためのフィールド
+    // S 型を保持する理由は `add()` で間違った型の関数が登録されることを防ぐため。
+    _phantom: std::marker::PhantomData<S>,
 }
 
-impl<Status> Api<Status> {
+impl<S: Status> Api<S> {
     pub fn new() -> Self {
         Self {
             callbacks: HashMap::new(),
@@ -23,7 +33,7 @@ impl<Status> Api<Status> {
     }
 
     // JavaScript 側から呼び出される関数を登録する
-    pub fn add<F: Fn(&Status, CallbackInfo) + Sized>(mut self, name: &str, _: F) -> Self {
+    pub fn add<F: Fn(&mut S, CallbackInfo) + Sized>(mut self, name: &str, _: F) -> Self {
         // 関数の型をチェックする
         const {
             assert!(
@@ -43,7 +53,7 @@ impl<Status> Api<Status> {
         //     }
         // );
         // ```
-        unsafe extern "C" fn f<Status, F: Fn(&Status, CallbackInfo) + Sized>(
+        unsafe extern "C" fn f<S, F: Fn(&mut S, CallbackInfo) + Sized>(
             info: *const v8::FunctionCallbackInfo,
         ) {
             // 引数を取り出す
@@ -55,11 +65,12 @@ impl<Status> Api<Status> {
             let rv = v8::ReturnValue::from_function_callback_info(info);
             let info = CallbackInfo { scope, args, rv };
 
-            // `info.args.data()` から `&Status` を取り出す
-            // 安全性: `info.args.data()` に &Status が格納されていることは呼び出し側が保証する
+            // `info.args.data()` から `&S` を取り出す
+            // 安全性: `info.args.data()` に &RefCell<S> が格納されていることは呼び出し側が保証する
             let status = info.args.data().try_cast::<v8::External>().unwrap();
-            let status = status.value().cast::<Status>();
+            let status = status.value().cast::<RefCell<S>>();
             let status = unsafe { &*status };
+            let status = &mut *status.borrow_mut();
 
             // コールバック関数の型から関数のインスタンスを生成する
             // 安全性: 関数のサイズは 0 である必要があるが、それは前段の assert で保証されている
@@ -69,7 +80,7 @@ impl<Status> Api<Status> {
             // コールバック関数を呼び出す
             f(status, info);
         }
-        self.callbacks.insert(name.to_string(), f::<Status, F>);
+        self.callbacks.insert(name.to_string(), f::<S, F>);
         self
     }
 }

@@ -1,25 +1,22 @@
+/*
+use super::super::core::*;
 use deno_core::v8;
-use ps88::js::core::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// === ここからユーザーコード ===
-
-struct MyStatus {
+struct Status {
     audio_callback: Rc<RefCell<Option<v8::Global<v8::Function>>>>,
+    gui_callback: Rc<RefCell<Option<v8::Global<v8::Function>>>>,
 }
 
-impl MyStatus {
-    fn audio(&mut self, mut info: CallbackInfo) {
-        let callback = match info.args.get(0).try_cast::<v8::Function>() {
-            Ok(callback) => callback,
-            Err(_) => {
-                let msg = v8::String::new(info.scope, "argument must be a function")
-                    .unwrap_or(v8::String::empty(info.scope));
-                let err = v8::Exception::type_error(info.scope, msg);
-                info.scope.throw_exception(err);
-                return;
-            }
+impl Status {
+    fn audio(&self, mut info: CallbackInfo) {
+        let Ok(callback) = info.args.get(0).try_cast::<v8::Function>() else {
+            let msg = v8::String::new(info.scope, "argument must be a function")
+                .unwrap_or(v8::String::empty(info.scope));
+            let err = v8::Exception::type_error(info.scope, msg);
+            info.scope.throw_exception(err);
+            return;
         };
         let callback = v8::Global::new(info.scope, callback);
         *self.audio_callback.borrow_mut() = Some(callback);
@@ -28,7 +25,7 @@ impl MyStatus {
 }
 
 impl Status for MyStatus {
-    fn reset(&mut self) {
+    fn reset(&self) {
         self.audio_callback.borrow_mut().take();
     }
 }
@@ -39,13 +36,12 @@ impl Drop for MyStatus {
     }
 }
 
-/*
-struct MyRuntime {
+pub struct Runtime {
     runtime: JsRuntime<MyStatus>,
     audio_callback: Rc<RefCell<Option<v8::Global<v8::Function>>>>,
 }
 
-impl MyRuntime {
+impl Runtime {
     fn new() -> Self {
         let audio_callback = Rc::new(RefCell::new(None));
         let data = MyStatus {
@@ -141,50 +137,3 @@ impl MyRuntime {
     //fn add_logger(&mut self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) -> Result<()>;
 }
 */
-
-fn main() {
-    let audio = Rc::new(RefCell::new(None));
-    let data = MyStatus {
-        audio_callback: audio.clone(),
-    };
-    let api = Api::new().add("audio", MyStatus::audio);
-    let mut app = JsRuntime::new(data);
-    app.reset();
-    app.set_logger(|msg| {
-        println!("Console log: {}", msg);
-    });
-    if let Err(e) = app.add_api("ps88", &api) {
-        eprintln!("Failed to add api: {}", e);
-        return;
-    }
-    if let Err(e) = app.run("let a = 100; let b = ps88.audio((n) => (n + a)); console.log(b);") {
-        eprintln!("Failed to run script: {}", e);
-        return;
-    }
-
-    {
-        let scope = &mut app.scope();
-        let audio = audio.borrow_mut();
-        let Some(audio) = audio.as_ref() else {
-            eprintln!("audio callback is not set");
-            return;
-        };
-        let callback = v8::Local::new(scope, audio);
-        let this = v8::undefined(scope).into();
-        let arg = v8::Number::new(scope, 42f64).into();
-        let Some(result) = callback.call(scope, this, &[arg]) else {
-            eprintln!("Failed to call audio callback");
-            return;
-        };
-        let result = match result.try_cast::<v8::Number>() {
-            Ok(result) => result.value(),
-            Err(e) => {
-                eprintln!("Callback result is not a number: {}", e);
-                return;
-            }
-        };
-        println!("Callback result: {:?}", result);
-    }
-
-    drop(app);
-}

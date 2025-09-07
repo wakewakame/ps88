@@ -5,7 +5,7 @@ pub enum JsRuntimeError {
     #[error("failed to compile: `{0}`")]
     CompileError(String),
     #[error("failed to process: `{0}`")]
-    ProcessError(String),
+    RuntimeError(String),
     #[error("unexpected error: {0}")]
     UnexpectedError(String),
 }
