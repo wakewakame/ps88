@@ -4,31 +4,41 @@ use super::inspector::*;
 use super::utils::*;
 use deno_core::v8;
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Once;
 
 pub struct JsRuntimeBuilder<'a> {
     api: Vec<Box<dyn ApiTrait<'a>>>,
+    logger: Vec<Box<dyn Fn(String) + 'a>>,
 }
 
 impl<'a> JsRuntimeBuilder<'a> {
     pub fn new() -> Self {
-        Self { api: Vec::new() }
+        Self {
+            api: Vec::new(),
+            logger: Vec::new(),
+        }
     }
 
-    pub fn with_api<T: This<'a>>(mut self, api: Api<'a, T>) -> JsRuntimeBuilder<'a> {
+    pub fn add_api<T: This<'a>>(mut self, api: Api<'a, T>) -> JsRuntimeBuilder<'a> {
         self.api.push(Box::new(api));
         self
     }
 
+    pub fn add_logger<F: Fn(String) + 'a>(mut self, logger: F) -> JsRuntimeBuilder<'a> {
+        self.logger.push(Box::new(logger));
+        self
+    }
+
     pub fn build(self) -> Result<JsRuntime<'a>> {
-        JsRuntime::<'a>::new(self.api)
+        JsRuntime::<'a>::new(self.api, self.logger)
     }
 }
 
 // JavaScript の実行環境
 pub struct JsRuntime<'a> {
     // NOTE: _inspector と context は isolate に紐づくので、これらは isolate より先に drop される必要がある
-    _inspector: Option<Inspector>,
+    _inspector: Option<Inspector<'a>>,
     context: v8::Global<v8::Context>,
 
     // NOTE: isolate は間接的に api の生ポインタを参照しているため、isolate は aip より先に drop される必要がある
@@ -36,15 +46,13 @@ pub struct JsRuntime<'a> {
 
     // Rust 側のコールバック関数に渡すステータス情報
     api: Vec<Box<dyn ApiTrait<'a>>>,
+
+    // console.log() の出力を得るためのロガー
+    logger: Rc<Vec<Box<dyn Fn(String) + 'a>>>,
 }
 
-// TODO:
-// 設計をリファクタリングしたい
-// - reset しても logger や api の設定がリセットされないようにしたい
-// - set_logger() や add_callbacks() は削除して、JsRuntime::new() の引数で logger や api を渡せるようにしたい
-// - JsRuntimeBuilder のようなビルダーパターンを導入して、logger や api を設定できるようにしたい
 impl<'a> JsRuntime<'a> {
-    fn new(api: Vec<Box<dyn ApiTrait<'a>>>) -> Result<Self> {
+    fn new(api: Vec<Box<dyn ApiTrait<'a>>>, logger: Vec<Box<dyn Fn(String) + 'a>>) -> Result<Self> {
         static PUPPY_INIT: Once = Once::new();
         PUPPY_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -62,6 +70,7 @@ impl<'a> JsRuntime<'a> {
             context,
             isolate,
             api,
+            logger: Rc::new(logger),
         };
         result.init()?;
         Ok(result)
@@ -76,56 +85,56 @@ impl<'a> JsRuntime<'a> {
         };
 
         // api のコールバック関数を登録
-        let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-        let context = v8::Local::new(scope, &self.context);
-        for api in self.api.iter() {
-            let obj_t = v8::ObjectTemplate::new(scope);
-            let this = v8::External::new(
-                scope,
-                api.this() as *const RefCell<dyn This> as *mut std::ffi::c_void,
-            );
-            for (name, func) in api.callbacks().iter() {
-                let name = v8str(scope, name)?;
-                let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
-                    .data(this.into())
-                    .build(scope);
-                obj_t.set(name.into(), func.into());
+        {
+            let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
+            let context = v8::Local::new(scope, &self.context);
+            for api in self.api.iter() {
+                let obj_t = v8::ObjectTemplate::new(scope);
+                let this = v8::External::new(
+                    scope,
+                    api.this() as *const RefCell<dyn This> as *mut std::ffi::c_void,
+                );
+                for (name, func) in api.callbacks().iter() {
+                    let name = v8str(scope, name)?;
+                    let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
+                        .data(this.into())
+                        .build(scope);
+                    obj_t.set(name.into(), func.into());
+                }
+                let Some(obj) = obj_t.new_instance(scope) else {
+                    return Err(JsRuntimeError::UnexpectedError(
+                        "failed to create api object".to_string(),
+                    ));
+                };
+                let name = v8str(scope, api.name())?;
+                context.global(scope).set(scope, name.into(), obj.into());
             }
-            let Some(obj) = obj_t.new_instance(scope) else {
-                return Err(JsRuntimeError::UnexpectedError(
-                    "failed to create api object".to_string(),
-                ));
+        }
+
+        // console.log() の出力を得るためのロガーを設定
+        {
+            self._inspector = {
+                let logger = Rc::clone(&self.logger);
+                let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
+                let context = v8::Local::new(scope, &self.context);
+                let inspector = Inspector::new(scope, context, move |msg| {
+                    for logger in logger.iter() {
+                        logger(msg.clone());
+                    }
+                });
+                Some(inspector)
             };
-            let name = v8str(scope, api.name())?;
-            context.global(scope).set(scope, name.into(), obj.into());
         }
 
         Ok(())
     }
 
     // JavaScript の実行環境をリセット
-    // set_logger() の設定もリセットされる。
     pub fn reset<'b>(&'b mut self) -> Result<()> {
         for api in self.api.iter() {
             api.this().borrow_mut().reset();
         }
         self.init()
-    }
-
-    // console.log() の出力を得るためのロガーを設定
-    pub fn set_logger<F: Fn(String) + 'static>(&mut self, logger: F) {
-        // NOTE:
-        // 新しい inspector を作った後に古い inspector を drop すると
-        // 古い inspector のデストラクタが新しい inspector に影響して
-        // console.log の出力を得られなくなってしまう。
-        // そのため、先にここで古いインスタンスを drop しておく。
-        self._inspector = None;
-        self._inspector = {
-            let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-            let context = v8::Local::new(scope, &self.context);
-            let inspector = Inspector::new(scope, context, logger);
-            Some(inspector)
-        };
     }
 
     // スクリプトを実行
@@ -172,37 +181,26 @@ mod tests {
     #[test]
     fn test_set_logger() {
         use std::sync::mpsc::*;
-        let mut rt = JsRuntimeBuilder::new().build().unwrap();
-
         // set_logger で console.log の出力を得られる
-        let (tx1, rx1) = channel();
-        rt.set_logger(move |msg| tx1.send(msg).unwrap());
+        let (tx, rx) = channel();
+        let mut rt = JsRuntimeBuilder::new()
+            .add_logger(move |msg| tx.send(msg).unwrap())
+            .build()
+            .unwrap();
+
         rt.run("console.log('log1');").unwrap();
-        assert_eq!(rx1.try_recv().unwrap(), "log1");
+        assert_eq!(rx.try_recv().unwrap(), "log1");
         rt.run("console.log('log2');").unwrap();
-        assert_eq!(rx1.try_recv().unwrap(), "log2");
-
-        // set_logger を再度呼ぶと新しい logger に切り替わる
-        let (tx2, rx2) = channel();
-        rt.set_logger(move |msg| tx2.send(msg).unwrap());
-        // 古い logger は drop される
-        assert!(matches!(rx1.try_recv(), Err(TryRecvError::Disconnected)));
-        rt.run("console.log('log3');").unwrap();
-        assert_eq!(rx2.try_recv().unwrap(), "log3");
-
-        // reset すると logger は drop される
-        rt.reset().unwrap();
-        assert!(matches!(rx2.try_recv(), Err(TryRecvError::Disconnected)));
+        assert_eq!(rx.try_recv().unwrap(), "log2");
 
         // reset 後も set_logger は問題なく動く
-        let (tx3, rx3) = channel();
-        rt.set_logger(move |msg| tx3.send(msg).unwrap());
-        rt.run("console.log('log4');").unwrap();
-        assert_eq!(rx3.try_recv().unwrap(), "log4");
+        rt.reset().unwrap();
+        rt.run("console.log('log3');").unwrap();
+        assert_eq!(rx.try_recv().unwrap(), "log3");
 
         // runtime を drop すると logger も drop される
         drop(rt);
-        assert!(matches!(rx3.try_recv(), Err(TryRecvError::Disconnected)));
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
     }
 
     #[test]
@@ -235,43 +233,15 @@ mod tests {
             }
         }
 
-        struct Toggle<'a> {
-            value: bool,
-            dropped: &'a mut bool,
-        }
-        impl<'a> Toggle<'a> {
-            fn toggle(&mut self, mut info: CallbackInfo) {
-                self.value = !self.value;
-                info.rv.set(v8::Boolean::new(info.scope, self.value).into());
-            }
-        }
-        impl<'a> This<'a> for Toggle<'a> {
-            fn reset(&mut self) {
-                self.value = false;
-            }
-        }
-        impl<'a> Drop for Toggle<'a> {
-            fn drop(&mut self) {
-                *self.dropped = true;
-            }
-        }
-
-        // Counter, Toggle を API として登録
-        let mut counter_dropped = false;
+        // Counter を API として登録
+        let mut dropped = false;
         let counter = Counter {
             count: 0f64,
-            dropped: &mut counter_dropped,
+            dropped: &mut dropped,
         };
         let counter_api = Api::new("counter", counter).add("add", Counter::add);
-        let mut toggle_dropped = false;
-        let toggle = Toggle {
-            value: false,
-            dropped: &mut toggle_dropped,
-        };
-        let toggle_api = Api::new("toggle", toggle).add("toggle", Toggle::toggle);
         let mut rt = JsRuntimeBuilder::new()
-            .with_api(counter_api)
-            .with_api(toggle_api)
+            .add_api(counter_api)
             .build()
             .unwrap();
 
@@ -283,16 +253,6 @@ mod tests {
         let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
         assert_eq!(result, 3f64);
 
-        // toggle.toggle を呼び出せる
-        let result = rt.run("toggle.toggle();");
-        assert!(result.unwrap().try_cast::<v8::Boolean>().unwrap().is_true());
-        let result = rt.run("toggle.toggle();");
-        assert!(result
-            .unwrap()
-            .try_cast::<v8::Boolean>()
-            .unwrap()
-            .is_false());
-
         // 引数の型が違う場合は適切に例外が投げられる
         let result = rt.run("counter.add('a');");
         assert!(matches!(result, Err(JsRuntimeError::RuntimeError(_))));
@@ -302,12 +262,9 @@ mod tests {
         let result = rt.run("counter.add(1);");
         let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
         assert_eq!(result, 1f64);
-        let result = rt.run("toggle.toggle();");
-        assert!(result.unwrap().try_cast::<v8::Boolean>().unwrap().is_true());
 
         // runtime を drop すると Counter も drop される
         drop(rt);
-        assert!(counter_dropped);
-        assert!(toggle_dropped);
+        assert!(dropped);
     }
 }

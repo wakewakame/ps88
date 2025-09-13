@@ -1,13 +1,13 @@
 use deno_core::v8;
 
-pub struct Inspector {
+pub struct Inspector<'a> {
     // NOTE: _inspector は _client の参照を抱えるため client より先に drop される必要がある
     _inspector: v8::UniqueRef<v8::inspector::V8Inspector>,
-    _client: Box<InspectorClient>,
+    _client: Box<InspectorClient<'a>>,
 }
 
-impl Inspector {
-    pub fn new<F: Fn(String) + 'static>(
+impl<'a> Inspector<'a> {
+    pub fn new<F: Fn(String) + 'a>(
         scope: &mut v8::HandleScope,
         context: v8::Local<v8::Context>,
         logger: F,
@@ -31,13 +31,13 @@ impl Inspector {
     }
 }
 
-struct InspectorClient {
+struct InspectorClient<'a> {
     base: v8::inspector::V8InspectorClientBase,
-    logger: Box<dyn Fn(String)>,
+    logger: Box<dyn Fn(String) + 'a>,
 }
 
 // 参考: https://github.com/denoland/deno_core/blob/75759fb5127982bdaf71e68f04dee01531d6591b/core/inspector.rs#L119
-impl v8::inspector::V8InspectorClientImpl for InspectorClient {
+impl<'a> v8::inspector::V8InspectorClientImpl for InspectorClient<'a> {
     fn base(&self) -> &v8::inspector::V8InspectorClientBase {
         &self.base
     }
