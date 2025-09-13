@@ -1,3 +1,5 @@
+use super::error::*;
+use super::utils::*;
 use deno_core::v8;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -10,7 +12,7 @@ pub trait This<'a>: 'a {
 
 // JavaScript 側から呼び出される関数を登録するための構造体
 pub struct Api<'a, T: This<'a>> {
-    // API の変数名
+    // v8 のグローバル変数に登録される API の変数名
     name: String,
 
     this: RefCell<T>,
@@ -94,19 +96,38 @@ pub struct CallbackInfo<'a, 'b> {
 }
 
 pub(crate) trait ApiTrait<'a>: 'a {
-    fn name(&self) -> &str;
-    fn this<'b>(&'b self) -> &'b RefCell<dyn This<'a>>;
-    fn callbacks(&self) -> &HashMap<String, v8::FunctionCallback>;
+    // v8 のグローバル変数に API を登録
+    fn register(&self, scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) -> Result<()>;
+
+    // v8 の Context が切り替わる直前に呼び出される関数
+    fn reset(&self);
 }
 
 impl<'a, T: This<'a>> ApiTrait<'a> for Api<'a, T> {
-    fn name(&self) -> &str {
-        &self.name
+    fn register(&self, scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) -> Result<()> {
+        let obj_t = v8::ObjectTemplate::new(scope);
+        let this = v8::External::new(
+            scope,
+            &self.this as *const RefCell<dyn This> as *mut std::ffi::c_void,
+        );
+        for (name, func) in self.callbacks.iter() {
+            let name = v8str(scope, name)?;
+            let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
+                .data(this.into())
+                .build(scope);
+            obj_t.set(name.into(), func.into());
+        }
+        let Some(obj) = obj_t.new_instance(scope) else {
+            return Err(JsRuntimeError::UnexpectedError(
+                "failed to create api object".to_string(),
+            ));
+        };
+        let name = v8str(scope, &self.name)?;
+        context.global(scope).set(scope, name.into(), obj.into());
+        Ok(())
     }
-    fn this<'b>(&'b self) -> &'b RefCell<dyn This<'a>> {
-        &self.this
-    }
-    fn callbacks(&self) -> &HashMap<String, v8::FunctionCallback> {
-        &self.callbacks
+
+    fn reset(&self) {
+        self.this.borrow_mut().reset();
     }
 }

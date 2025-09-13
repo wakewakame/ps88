@@ -3,7 +3,6 @@ use super::error::*;
 use super::inspector::*;
 use super::utils::*;
 use deno_core::v8;
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Once;
 
@@ -37,11 +36,11 @@ impl<'a> JsRuntimeBuilder<'a> {
 
 // JavaScript の実行環境
 pub struct JsRuntime<'a> {
-    // NOTE: _inspector と context は isolate に紐づくので、これらは isolate より先に drop される必要がある
-    _inspector: Option<Inspector<'a>>,
+    // NOTE: inspector と context は isolate に紐づくので、これらは isolate より先に drop される必要がある
+    inspector: Option<Inspector<'a>>,
     context: v8::Global<v8::Context>,
 
-    // NOTE: isolate は間接的に api の生ポインタを参照しているため、isolate は aip より先に drop される必要がある
+    // NOTE: isolate は間接的に api の生ポインタを参照しているため、isolate は api より先に drop される必要がある
     isolate: v8::OwnedIsolate,
 
     // Rust 側のコールバック関数に渡すステータス情報
@@ -53,6 +52,7 @@ pub struct JsRuntime<'a> {
 
 impl<'a> JsRuntime<'a> {
     fn new(api: Vec<Box<dyn ApiTrait<'a>>>, logger: Vec<Box<dyn Fn(String) + 'a>>) -> Result<Self> {
+        // V8 の初期化
         static PUPPY_INIT: Once = Once::new();
         PUPPY_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -60,81 +60,78 @@ impl<'a> JsRuntime<'a> {
             v8::V8::initialize();
         });
         let mut isolate = v8::Isolate::new(Default::default());
+
+        // context 作成
         let context = {
             let handle_scope = &mut v8::HandleScope::new(&mut isolate);
             let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
             v8::Global::new(handle_scope, context)
         };
-        let mut result = Self {
-            _inspector: None,
+
+        // api のコールバック関数を登録
+        let api = {
+            let scope = &mut v8::HandleScope::with_context(&mut isolate, &context);
+            let context = v8::Local::new(scope, &context);
+            for api in api.iter() {
+                api.register(scope, context)?;
+            }
+            api
+        };
+
+        // console.log() の出力を得るためのロガーを設定
+        let logger = Rc::new(logger);
+        let inspector = {
+            let scope = &mut v8::HandleScope::with_context(&mut isolate, &context);
+            let context = v8::Local::new(scope, &context);
+            let logger = Rc::clone(&logger);
+            let inspector = Some(Inspector::new(scope, context, move |msg| {
+                logger.iter().for_each(|f| f(msg.clone()));
+            }));
+            inspector
+        };
+
+        Ok(Self {
+            inspector,
             context,
             isolate,
             api,
-            logger: Rc::new(logger),
-        };
-        result.init()?;
-        Ok(result)
+            logger,
+        })
     }
 
-    fn init(&mut self) -> Result<()> {
-        self._inspector = None;
+    // JavaScript の実行環境をリセット
+    pub fn reset<'b>(&'b mut self) -> Result<()> {
+        // api の this をリセット
+        self.api.iter().for_each(|api| api.reset());
+
+        // NOTE:
+        // 新しい inspector を作った後に古い inspector を drop すると
+        // 古い inspector のデストラクタが新しい inspector に影響して
+        // console.log の出力を得られなくなってしまう。
+        // そのため、先にここで古いインスタンスを drop しておく。
+        self.inspector = None;
+
+        // context 作成
         self.context = {
             let handle_scope = &mut v8::HandleScope::new(&mut self.isolate);
             let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
             v8::Global::new(handle_scope, context)
         };
+        let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
+        let context = v8::Local::new(scope, &self.context);
 
-        // api のコールバック関数を登録
-        {
-            let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-            let context = v8::Local::new(scope, &self.context);
-            for api in self.api.iter() {
-                let obj_t = v8::ObjectTemplate::new(scope);
-                let this = v8::External::new(
-                    scope,
-                    api.this() as *const RefCell<dyn This> as *mut std::ffi::c_void,
-                );
-                for (name, func) in api.callbacks().iter() {
-                    let name = v8str(scope, name)?;
-                    let func = v8::FunctionBuilder::<v8::FunctionTemplate>::new_raw(*func)
-                        .data(this.into())
-                        .build(scope);
-                    obj_t.set(name.into(), func.into());
-                }
-                let Some(obj) = obj_t.new_instance(scope) else {
-                    return Err(JsRuntimeError::UnexpectedError(
-                        "failed to create api object".to_string(),
-                    ));
-                };
-                let name = v8str(scope, api.name())?;
-                context.global(scope).set(scope, name.into(), obj.into());
-            }
+        // v8 のグローバル変数に API を登録する
+        for api in self.api.iter() {
+            api.register(scope, context)?;
         }
 
         // console.log() の出力を得るためのロガーを設定
-        {
-            self._inspector = {
-                let logger = Rc::clone(&self.logger);
-                let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
-                let context = v8::Local::new(scope, &self.context);
-                let inspector = Inspector::new(scope, context, move |msg| {
-                    for logger in logger.iter() {
-                        logger(msg.clone());
-                    }
-                });
-                Some(inspector)
-            };
-        }
+        let logger = Rc::clone(&self.logger);
+        self.inspector = Some(Inspector::new(scope, context, move |msg| {
+            logger.iter().for_each(|f| f(msg.clone()));
+        }));
 
         Ok(())
-    }
-
-    // JavaScript の実行環境をリセット
-    pub fn reset<'b>(&'b mut self) -> Result<()> {
-        for api in self.api.iter() {
-            api.this().borrow_mut().reset();
-        }
-        self.init()
     }
 
     // スクリプトを実行
@@ -181,7 +178,7 @@ mod tests {
     #[test]
     fn test_set_logger() {
         use std::sync::mpsc::*;
-        // set_logger で console.log の出力を得られる
+        // console.log の出力を得られる
         let (tx, rx) = channel();
         let mut rt = JsRuntimeBuilder::new()
             .add_logger(move |msg| tx.send(msg).unwrap())
@@ -193,7 +190,7 @@ mod tests {
         rt.run("console.log('log2');").unwrap();
         assert_eq!(rx.try_recv().unwrap(), "log2");
 
-        // reset 後も set_logger は問題なく動く
+        // reset 後も問題なく動く
         rt.reset().unwrap();
         rt.run("console.log('log3');").unwrap();
         assert_eq!(rx.try_recv().unwrap(), "log3");
@@ -205,66 +202,100 @@ mod tests {
 
     #[test]
     fn test_add_callbacks() {
-        // テスト用のカウント API を定義
-        struct Counter<'a> {
-            count: f64,
-            dropped: &'a mut bool,
-        }
-        impl<'a> Counter<'a> {
-            fn add(&mut self, mut info: CallbackInfo) {
-                let Ok(arg0) = info.args.get(0).try_cast::<v8::Number>() else {
+        // TestMath, TestCounter を API として登録
+        let test_math = Api::new("test_math", TestMath()).add("add", TestMath::add);
+        let mut dropped = false;
+        let test_counter = Api::new(
+            "test_counter",
+            TestCounter {
+                count: 0f64,
+                dropped: &mut dropped,
+            },
+        )
+        .add("add", TestCounter::add);
+        let mut rt = JsRuntimeBuilder::new()
+            .add_api(test_math)
+            .add_api(test_counter)
+            .build()
+            .unwrap();
+
+        // test_math.add を呼び出せる
+        let result = rt.run("test_math.add(1, 2, 3);");
+        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
+        assert_eq!(result, 6f64);
+
+        // test_counter.add を呼び出せる
+        let result = rt.run("test_counter.add(1);");
+        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
+        assert_eq!(result, 1f64);
+        let result = rt.run("test_counter.add(2);");
+        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
+        assert_eq!(result, 3f64);
+
+        // 引数の型が違う場合は適切に例外が投げられる
+        let result = rt.run("test_counter.add('a');");
+        assert!(matches!(result, Err(JsRuntimeError::RuntimeError(_))));
+
+        // reset 後も問題なく動く
+        rt.reset().unwrap();
+        let result = rt.run("test_math.add(4, 5, 6);");
+        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
+        assert_eq!(result, 15f64);
+        let result = rt.run("test_counter.add(1);");
+        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
+        assert_eq!(result, 1f64);
+
+        // runtime を drop すると API のインスタンスも drop される
+        drop(rt);
+        assert!(dropped);
+    }
+
+    // テスト用の計算 API を定義
+    struct TestMath();
+    impl TestMath {
+        fn add(&mut self, mut info: CallbackInfo) {
+            let mut result = 0f64;
+            for i in 0..info.args.length() {
+                let Ok(arg) = info.args.get(i).try_cast::<v8::Number>() else {
                     let msg = v8::String::empty(info.scope);
                     let err = v8::Exception::type_error(info.scope, msg);
                     info.scope.throw_exception(err);
                     return;
                 };
-                self.count += arg0.value();
-                info.rv.set(v8::Number::new(info.scope, self.count).into());
+                result += arg.value();
             }
+            info.rv.set(v8::Number::new(info.scope, result).into());
         }
-        impl<'a> This<'a> for Counter<'a> {
-            fn reset(&mut self) {
-                self.count = 0f64;
-            }
+    }
+    impl This<'_> for TestMath {
+        fn reset(&mut self) {}
+    }
+
+    // テスト用のカウント API を定義
+    struct TestCounter<'a> {
+        count: f64,
+        dropped: &'a mut bool,
+    }
+    impl<'a> TestCounter<'a> {
+        fn add(&mut self, mut info: CallbackInfo) {
+            let Ok(arg0) = info.args.get(0).try_cast::<v8::Number>() else {
+                let msg = v8::String::empty(info.scope);
+                let err = v8::Exception::type_error(info.scope, msg);
+                info.scope.throw_exception(err);
+                return;
+            };
+            self.count += arg0.value();
+            info.rv.set(v8::Number::new(info.scope, self.count).into());
         }
-        impl<'a> Drop for Counter<'a> {
-            fn drop(&mut self) {
-                *self.dropped = true;
-            }
+    }
+    impl<'a> This<'a> for TestCounter<'a> {
+        fn reset(&mut self) {
+            self.count = 0f64;
         }
-
-        // Counter を API として登録
-        let mut dropped = false;
-        let counter = Counter {
-            count: 0f64,
-            dropped: &mut dropped,
-        };
-        let counter_api = Api::new("counter", counter).add("add", Counter::add);
-        let mut rt = JsRuntimeBuilder::new()
-            .add_api(counter_api)
-            .build()
-            .unwrap();
-
-        // counter.add を呼び出せる
-        let result = rt.run("counter.add(1);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 1f64);
-        let result = rt.run("counter.add(2);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 3f64);
-
-        // 引数の型が違う場合は適切に例外が投げられる
-        let result = rt.run("counter.add('a');");
-        assert!(matches!(result, Err(JsRuntimeError::RuntimeError(_))));
-
-        // reset 後も add_callbacks() は問題なく動く
-        rt.reset().unwrap();
-        let result = rt.run("counter.add(1);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 1f64);
-
-        // runtime を drop すると Counter も drop される
-        drop(rt);
-        assert!(dropped);
+    }
+    impl<'a> Drop for TestCounter<'a> {
+        fn drop(&mut self) {
+            *self.dropped = true;
+        }
     }
 }
