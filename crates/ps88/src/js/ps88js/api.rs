@@ -1,3 +1,4 @@
+/*
 use super::super::core;
 use super::status::*;
 use deno_core::v8;
@@ -41,3 +42,4 @@ impl core::Api for Api {
         status.gui_callback.take();
     }
 }
+*/

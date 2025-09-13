@@ -1,3 +1,4 @@
+/*
 use super::super::core;
 use super::api::*;
 use super::status::*;
@@ -193,3 +194,4 @@ mod tests {
         );
     }
 }
+*/
