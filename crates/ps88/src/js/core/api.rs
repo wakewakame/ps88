@@ -9,6 +9,9 @@ pub trait This<'a>: 'a {
     // This が v8 の変数を保持している場合、この関数が呼び出された時はそれらを解放する必要がある。
     fn reset(&mut self);
 }
+impl This<'_> for () {
+    fn reset(&mut self) {}
+}
 
 // JavaScript 側から呼び出される関数を登録するための構造体
 pub struct Api<'a, T: This<'a>> {

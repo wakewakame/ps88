@@ -1,13 +1,15 @@
 use super::super::core;
 use super::api::*;
+use super::convert::*;
 use super::status::*;
-use deno_core::{serde_v8, v8};
+use deno_core::v8;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Runtime<'a> {
     status: Rc<RefCell<Status>>,
     runtime: core::JsRuntime<'a>,
+    audio_buf: Option<v8::SharedRef<v8::BackingStore>>,
 }
 
 impl<'a> Runtime<'a> {
@@ -23,122 +25,81 @@ impl<'a> Runtime<'a> {
             },
         )
         .add("audio", Api::audio)
-        .add("gui", Api::gui);
+        .add("gui", Api::gui)
+        .add("save", Api::save)
+        .add("load", Api::load);
         let runtime = core::JsRuntimeBuilder::new()
             .add_api(api)
             .add_logger(logger)
             .build()?;
-        Ok(Self { status, runtime })
+        Ok(Self {
+            status,
+            runtime,
+            audio_buf: None,
+        })
+    }
+    pub fn reset(&mut self) -> core::Result<()> {
+        self.runtime.reset()
     }
     pub fn compile(&mut self, code: &str) -> core::Result<()> {
-        self.runtime.reset()?;
+        self.reset()?;
         self.runtime.run(code)?;
         Ok(())
     }
     pub fn audio(
         &mut self,
         audio: &mut [&mut [f32]], // audio[ch][sample]
-        sampling_rate: f32,
         midi: &mut Vec<[u8; 7]>,
+        sample_rate: f64,
+        current_frame: u64,
+        bpm: f64,
     ) -> core::Result<()> {
-        let mut status = self.status.borrow_mut();
-        let audio_callback = &mut status.audio_callback;
-        let Some(callback) = audio_callback.as_ref() else {
-            return Ok(());
-        };
-
-        let scope = &mut self.runtime.scope();
-
-        // audio を Vec<Float32Array> に変換
-        // TODO: 毎回メモリ確保するのではなく backing_store をメンバ変数に抱えておく
-        let mut float32arrays = Vec::with_capacity(audio.len());
-        for ch in audio.iter() {
-            // NOTE: ArrayBuffer::new() で生成されるメモリはどうやら 16 byte 境界にアラインされるらしいので多分安全...? (ちゃんと確認していない)
-            // BackingStore のメモリを自分で生成する方法もあるが、安全なのかよくわかっていないので今回はやめておく。
-            let array_buffer = v8::ArrayBuffer::new(scope, ch.len() * std::mem::size_of::<f32>());
-            let backing_store = array_buffer.get_backing_store();
-            if let Some(pointer) = backing_store.data() {
-                unsafe {
-                    std::ptr::copy(ch.as_ptr(), pointer.as_ptr() as *mut f32, ch.len());
-                }
-            }
-            let Some(float32array) = v8::Float32Array::new(scope, array_buffer, 0, ch.len()) else {
-                return Err(core::JsRuntimeError::UnexpectedError(
-                    "failed to create Float32Array".to_string(),
-                ));
-            };
-            float32arrays.push(float32array);
-        }
-        let audio_js = v8::Array::new_with_elements(
-            scope,
-            float32arrays
-                .clone()
-                .into_iter()
-                .map(|f32a| f32a.into())
-                .collect::<Vec<v8::Local<v8::Value>>>()
-                .as_slice(),
-        );
-
-        // midi を v8 に変換
-        let midi_js = core::wrap_err(serde_v8::to_v8(scope, midi.clone()))?;
-
-        // sampling_rate を v8 に変換
-        let sampling_rate = v8::Number::new(scope, sampling_rate as f64);
-
-        // 引数を用意
-        let arg = v8::Object::new(scope);
-        let key = core::v8str(scope, "audio")?.into();
-        arg.set(scope, key, audio_js.into());
-        let key = core::v8str(scope, "midi")?.into();
-        arg.set(scope, key, midi_js.into());
-        let key = core::v8str(scope, "sampling_rate")?.into();
-        arg.set(scope, key, sampling_rate.into());
-
         let result = || -> core::Result<()> {
+            let scope = &mut self.runtime.scope();
+            let callback = {
+                let status = self.status.borrow();
+                let Some(callback) = status.audio_callback.as_ref() else {
+                    return Ok(()); // callback が登録されていなければ何もしない
+                };
+                v8::Local::new(scope, callback)
+            };
+
+            // audio, midi, sampling_rate を v8 に変換
+            let audio_js = audio_to_backing_store(scope, audio, &mut self.audio_buf)?;
+            let midi_js = midi_to_arr(scope, midi)?;
+            let sample_rate_js = v8::Number::new(scope, sample_rate).into();
+            let current_frame_js = v8::Number::new(scope, current_frame as f64).into();
+            let bpm_js = v8::Number::new(scope, bpm).into();
+
+            // 引数を用意
+            let arg = Dict::new(scope)
+                .add("audio", audio_js)?
+                .add("midi", midi_js)?
+                .add("sampleRate", sample_rate_js)?
+                .add("currentFrame", current_frame_js)?
+                .add("bpm", bpm_js)?
+                .value();
+
             // callback 呼び出し
-            let callback = v8::Local::new(scope, callback);
             let this = v8::undefined(scope).into();
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
-                let Some(_) = callback.call(try_catch, this, &[arg.into()]) else {
+                let Some(_) = callback.call(try_catch, this, &[arg]) else {
                     return Err(core::JsRuntimeError::RuntimeError(core::report_exceptions(
                         try_catch,
                     )));
                 };
             }
 
-            // 結果を audio に書き戻す
-            for (ch, ch_js) in audio.iter_mut().zip(float32arrays.iter()) {
-                let Some(array_buffer) = ch_js.buffer(scope) else {
-                    return Err(core::JsRuntimeError::UnexpectedError(
-                        "failed to get ArrayBuffer from Float32Array".to_string(),
-                    ));
-                };
-                let backing_store = array_buffer.get_backing_store();
-                if let Some(pointer) = backing_store.data() {
-                    unsafe {
-                        std::ptr::copy(pointer.as_ptr() as *const f32, ch.as_mut_ptr(), ch.len());
-                    }
-                }
-            }
-
-            // 結果を midi に書き戻す
-            match serde_v8::from_v8::<Vec<[u8; 7]>>(scope, midi_js) {
-                Ok(m) => {
-                    *midi = m;
-                }
-                Err(e) => {
-                    return Err(core::JsRuntimeError::UnexpectedError(format!(
-                        "failed to convert midi from v8: {}",
-                        e
-                    )));
-                }
-            };
+            // 結果を audio, midi に書き戻す
+            backing_store_to_audio(&self.audio_buf, audio);
+            *midi = arr_to_midi(scope, midi_js)?;
 
             Ok(())
         }();
         if result.is_err() {
-            audio_callback.take();
+            // エラーが起きたら状態をリセット
+            self.reset()?;
         }
         result
     }
@@ -156,8 +117,14 @@ mod tests {
         let mut rt = Runtime::new(|_| {}).unwrap();
         rt.compile(
             r#"ps88.audio((arg) => {
-    if (arg.sampling_rate !== 48000.0) {
-        throw new Error("sampling_rate must be 48000.0");
+    if (arg.sampleRate !== 48000.0) {
+        throw new Error("sampleRate must be 48000.0");
+    }
+    if (arg.currentFrame !== 1024) {
+        throw new Error("currentFrame must be 1024");
+    }
+    if (arg.bpm !== 120.0) {
+        throw new Error("bpm must be 120.0");
     }
     let audio = arg.audio;
     let midi = arg.midi;
@@ -179,7 +146,7 @@ mod tests {
             .iter_mut()
             .map(|ch| ch.as_mut_slice())
             .collect::<Vec<_>>();
-        rt.audio(audio_slice.as_mut_slice(), 48000.0, &mut midi)
+        rt.audio(audio_slice.as_mut_slice(), &mut midi, 48000.0, 1024, 120.0)
             .unwrap();
         assert_eq!(audio, vec![vec![0.2f32, 0.4, 0.6], vec![0.8, 1.0, 1.2]]);
         assert_eq!(

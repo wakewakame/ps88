@@ -202,8 +202,48 @@ mod tests {
 
     #[test]
     fn test_add_callbacks() {
-        // TestMath, TestCounter を API として登録
-        let test_math = Api::new("test_math", TestMath()).add("add", TestMath::add);
+        // テスト用の足し算 API を定義
+        let test_add = Api::new("test_add", ()).add("add", |_, mut info| {
+            let mut result = 0f64;
+            for i in 0..info.args.length() {
+                let Ok(arg) = info.args.get(i).try_cast::<v8::Number>() else {
+                    let msg = v8::String::empty(info.scope);
+                    let err = v8::Exception::type_error(info.scope, msg);
+                    info.scope.throw_exception(err);
+                    return;
+                };
+                result += arg.value();
+            }
+            info.rv.set(v8::Number::new(info.scope, result).into());
+        });
+
+        // テスト用のカウント API を定義
+        struct TestCounter<'a> {
+            count: f64,
+            dropped: &'a mut bool,
+        }
+        impl<'a> TestCounter<'a> {
+            fn add(&mut self, mut info: CallbackInfo) {
+                let Ok(arg0) = info.args.get(0).try_cast::<v8::Number>() else {
+                    let msg = v8::String::empty(info.scope);
+                    let err = v8::Exception::type_error(info.scope, msg);
+                    info.scope.throw_exception(err);
+                    return;
+                };
+                self.count += arg0.value();
+                info.rv.set(v8::Number::new(info.scope, self.count).into());
+            }
+        }
+        impl<'a> This<'a> for TestCounter<'a> {
+            fn reset(&mut self) {
+                self.count = 0f64;
+            }
+        }
+        impl<'a> Drop for TestCounter<'a> {
+            fn drop(&mut self) {
+                *self.dropped = true;
+            }
+        }
         let mut dropped = false;
         let test_counter = Api::new(
             "test_counter",
@@ -213,14 +253,16 @@ mod tests {
             },
         )
         .add("add", TestCounter::add);
+
+        // test_add, test_counter を API として登録
         let mut rt = JsRuntimeBuilder::new()
-            .add_api(test_math)
+            .add_api(test_add)
             .add_api(test_counter)
             .build()
             .unwrap();
 
-        // test_math.add を呼び出せる
-        let result = rt.run("test_math.add(1, 2, 3);");
+        // test_add.add を呼び出せる
+        let result = rt.run("test_add.add(1, 2, 3);");
         let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
         assert_eq!(result, 6f64);
 
@@ -238,7 +280,7 @@ mod tests {
 
         // reset 後も問題なく動く
         rt.reset().unwrap();
-        let result = rt.run("test_math.add(4, 5, 6);");
+        let result = rt.run("test_add.add(4, 5, 6);");
         let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
         assert_eq!(result, 15f64);
         let result = rt.run("test_counter.add(1);");
@@ -248,54 +290,5 @@ mod tests {
         // runtime を drop すると API のインスタンスも drop される
         drop(rt);
         assert!(dropped);
-    }
-
-    // テスト用の計算 API を定義
-    struct TestMath();
-    impl TestMath {
-        fn add(&mut self, mut info: CallbackInfo) {
-            let mut result = 0f64;
-            for i in 0..info.args.length() {
-                let Ok(arg) = info.args.get(i).try_cast::<v8::Number>() else {
-                    let msg = v8::String::empty(info.scope);
-                    let err = v8::Exception::type_error(info.scope, msg);
-                    info.scope.throw_exception(err);
-                    return;
-                };
-                result += arg.value();
-            }
-            info.rv.set(v8::Number::new(info.scope, result).into());
-        }
-    }
-    impl This<'_> for TestMath {
-        fn reset(&mut self) {}
-    }
-
-    // テスト用のカウント API を定義
-    struct TestCounter<'a> {
-        count: f64,
-        dropped: &'a mut bool,
-    }
-    impl<'a> TestCounter<'a> {
-        fn add(&mut self, mut info: CallbackInfo) {
-            let Ok(arg0) = info.args.get(0).try_cast::<v8::Number>() else {
-                let msg = v8::String::empty(info.scope);
-                let err = v8::Exception::type_error(info.scope, msg);
-                info.scope.throw_exception(err);
-                return;
-            };
-            self.count += arg0.value();
-            info.rv.set(v8::Number::new(info.scope, self.count).into());
-        }
-    }
-    impl<'a> This<'a> for TestCounter<'a> {
-        fn reset(&mut self) {
-            self.count = 0f64;
-        }
-    }
-    impl<'a> Drop for TestCounter<'a> {
-        fn drop(&mut self) {
-            *self.dropped = true;
-        }
     }
 }

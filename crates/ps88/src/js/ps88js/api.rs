@@ -33,6 +33,12 @@ impl Api {
         let mut status = self.status.borrow_mut();
         status.audio_callback = Some(callback);
     }
+    pub(crate) fn save(&mut self, _info: core::CallbackInfo) {
+        todo!()
+    }
+    pub(crate) fn load(&mut self, _info: core::CallbackInfo) {
+        todo!()
+    }
 }
 impl core::This<'_> for Api {
     fn reset(&mut self) {
