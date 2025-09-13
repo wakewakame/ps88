@@ -1,4 +1,3 @@
-/*
 use super::super::core;
 use super::api::*;
 use super::status::*;
@@ -6,29 +5,33 @@ use deno_core::{serde_v8, v8};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub struct Runtime {
+pub struct Runtime<'a> {
     status: Rc<RefCell<Status>>,
-    runtime: core::JsRuntime<Api>,
-    logger: fn(String),
+    runtime: core::JsRuntime<'a>,
 }
 
-impl Runtime {
-    pub fn new(logger: fn(String)) -> Self {
+impl<'a> Runtime<'a> {
+    pub fn new<F: Fn(String) + 'a>(logger: F) -> core::Result<Self> {
         let status = Rc::new(RefCell::new(Status {
             audio_callback: None,
             gui_callback: None,
         }));
-        let runtime = core::JsRuntime::new(Api {
-            status: status.clone(),
-        });
-        Self {
-            status,
-            runtime,
-            logger,
-        }
+        let api = core::Api::new(
+            "ps88",
+            Api {
+                status: status.clone(),
+            },
+        )
+        .add("audio", Api::audio)
+        .add("gui", Api::gui);
+        let runtime = core::JsRuntimeBuilder::new()
+            .add_api(api)
+            .add_logger(logger)
+            .build()?;
+        Ok(Self { status, runtime })
     }
     pub fn compile(&mut self, code: &str) -> core::Result<()> {
-        self.reset()?;
+        self.runtime.reset()?;
         self.runtime.run(code)?;
         Ok(())
     }
@@ -142,15 +145,6 @@ impl Runtime {
     pub fn gui(&mut self) {
         todo!()
     }
-    fn reset(&mut self) -> core::Result<()> {
-        self.runtime.reset();
-        let callbacks = core::Callbacks::new()
-            .add("audio", Api::audio)
-            .add("gui", Api::gui);
-        self.runtime.add_callbacks("ps88", &callbacks)?;
-        self.runtime.set_logger(self.logger);
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -159,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_audio() {
-        let mut rt = Runtime::new(|_| {});
+        let mut rt = Runtime::new(|_| {}).unwrap();
         rt.compile(
             r#"ps88.audio((arg) => {
     if (arg.sampling_rate !== 48000.0) {
@@ -194,4 +188,3 @@ mod tests {
         );
     }
 }
-*/

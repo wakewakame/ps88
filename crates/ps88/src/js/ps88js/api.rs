@@ -1,4 +1,3 @@
-/*
 use super::super::core;
 use super::status::*;
 use deno_core::v8;
@@ -35,11 +34,10 @@ impl Api {
         status.audio_callback = Some(callback);
     }
 }
-impl core::Api for Api {
+impl core::This<'_> for Api {
     fn reset(&mut self) {
         let mut status = self.status.borrow_mut();
         status.audio_callback.take();
         status.gui_callback.take();
     }
 }
-*/
