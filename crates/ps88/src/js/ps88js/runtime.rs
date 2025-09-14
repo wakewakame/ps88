@@ -2,7 +2,9 @@ use super::super::core;
 use super::api::*;
 use super::convert::*;
 use super::status::*;
-use deno_core::v8;
+use deno_core::serde_json::*;
+use deno_core::serde_v8::*;
+use deno_core::{serde_v8, v8};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -103,8 +105,71 @@ impl<'a> Runtime<'a> {
         }
         result
     }
-    pub fn gui(&mut self) {
-        todo!()
+    pub fn gui(&mut self) -> core::Result<()> {
+        let result = || -> core::Result<()> {
+            let scope = &mut self.runtime.scope();
+            let callback = {
+                let status = self.status.borrow();
+                let Some(callback) = status.gui_callback.as_ref() else {
+                    return Ok(()); // callback が登録されていなければ何もしない
+                };
+                v8::Local::new(scope, callback)
+            };
+
+            /*
+            w: number,
+            h: number,
+            mouse: { x: number, y: number, pressedL: boolean, pressedR: boolean };
+            addShape: (shape: [number, number][], options?: {
+              fill?: number,
+              stroke?: number,
+              strokeWidth?: number,
+              strokeClosed?: boolean,
+            }) => void,
+            addText: (text: string, x: number, y: number, options?: {
+              size?: number,
+              color?: number,
+            }) => void,
+            */
+
+            let Ok(arg) = serde_v8::to_v8(
+                scope,
+                json!({
+                    "w": 0f64,
+                    "h": 0f64,
+                    "mouse": {
+                        "x": 0f64,
+                        "y": 0f64,
+                        "pressedL": false,
+                        "pressedR": false,
+                    },
+                    "addShape": null,
+                    "addText": null,
+                }),
+            ) else {
+                return Err(core::JsRuntimeError::RuntimeError(
+                    "failed to create argument".to_string(),
+                ));
+            };
+
+            // callback 呼び出し
+            let this = v8::undefined(scope).into();
+            {
+                let try_catch = &mut v8::TryCatch::new(scope);
+                let Some(_) = callback.call(try_catch, this, &[arg]) else {
+                    return Err(core::JsRuntimeError::RuntimeError(core::report_exceptions(
+                        try_catch,
+                    )));
+                };
+            }
+
+            Ok(())
+        }();
+        if result.is_err() {
+            // エラーが起きたら状態をリセット
+            self.reset()?;
+        }
+        result
     }
 }
 
