@@ -1,5 +1,6 @@
 use super::super::core;
 use super::runtime::*;
+use super::shape_api::*;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -17,6 +18,7 @@ impl RuntimeActor {
         let args = Arc::new(Mutex::new(RuntimeActorArgs {
             audio: Vec::new(),
             midi: Vec::new(),
+            shapes: Shapes::new(),
         }));
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
@@ -36,7 +38,7 @@ impl RuntimeActor {
                         bpm,
                         result,
                     } => {
-                        let RuntimeActorArgs { audio, midi } = &mut *args_clone.lock().unwrap();
+                        let RuntimeActorArgs { audio, midi, .. } = &mut *args_clone.lock().unwrap();
                         let mut audio: Vec<&mut [f32]> =
                             audio.iter_mut().map(|ch| ch.as_mut_slice()).collect();
                         result
@@ -49,8 +51,9 @@ impl RuntimeActor {
                             ))
                             .unwrap();
                     }
-                    RuntimeActorMessage::Gui { result } => {
-                        result.send(runtime.gui()).unwrap();
+                    RuntimeActorMessage::Gui { args, result } => {
+                        let RuntimeActorArgs { shapes, .. } = &mut *args_clone.lock().unwrap();
+                        result.send(runtime.gui(args, shapes)).unwrap();
                     }
                 }
             }
@@ -147,6 +150,7 @@ impl Drop for RuntimeActor {
 struct RuntimeActorArgs {
     audio: Vec<Vec<f32>>,
     midi: Vec<[u8; 7]>,
+    shapes: Shapes,
 }
 
 enum RuntimeActorMessage {
@@ -164,6 +168,7 @@ enum RuntimeActorMessage {
         result: Sender<core::Result<()>>,
     },
     Gui {
+        args: GuiArgs,
         result: Sender<core::Result<()>>,
     },
 }

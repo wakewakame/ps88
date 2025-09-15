@@ -1,10 +1,9 @@
 use super::super::core;
 use super::api::*;
 use super::convert::*;
+use super::shape_api::*;
 use super::status::*;
-use deno_core::serde_json::*;
-use deno_core::serde_v8::*;
-use deno_core::{serde_v8, v8};
+use deno_core::v8;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -69,17 +68,14 @@ impl<'a> Runtime<'a> {
             // audio, midi, sampling_rate を v8 に変換
             let audio_js = audio_to_backing_store(scope, audio, &mut self.audio_buf)?;
             let midi_js = midi_to_arr(scope, midi)?;
-            let sample_rate_js = v8::Number::new(scope, sample_rate).into();
-            let current_frame_js = v8::Number::new(scope, current_frame as f64).into();
-            let bpm_js = v8::Number::new(scope, bpm).into();
 
             // 引数を用意
             let arg = Dict::new(scope)
                 .add("audio", audio_js)?
                 .add("midi", midi_js)?
-                .add("sampleRate", sample_rate_js)?
-                .add("currentFrame", current_frame_js)?
-                .add("bpm", bpm_js)?
+                .add_number("sampleRate", sample_rate)?
+                .add_number("currentFrame", current_frame as f64)?
+                .add_number("bpm", bpm)?
                 .value();
 
             // callback 呼び出し
@@ -105,7 +101,7 @@ impl<'a> Runtime<'a> {
         }
         result
     }
-    pub fn gui(&mut self) -> core::Result<()> {
+    pub fn gui(&mut self, args: GuiArgs, shapes: &mut Shapes) -> core::Result<()> {
         let result = || -> core::Result<()> {
             let scope = &mut self.runtime.scope();
             let callback = {
@@ -116,41 +112,20 @@ impl<'a> Runtime<'a> {
                 v8::Local::new(scope, callback)
             };
 
-            /*
-            w: number,
-            h: number,
-            mouse: { x: number, y: number, pressedL: boolean, pressedR: boolean };
-            addShape: (shape: [number, number][], options?: {
-              fill?: number,
-              stroke?: number,
-              strokeWidth?: number,
-              strokeClosed?: boolean,
-            }) => void,
-            addText: (text: string, x: number, y: number, options?: {
-              size?: number,
-              color?: number,
-            }) => void,
-            */
-
-            let Ok(arg) = serde_v8::to_v8(
-                scope,
-                json!({
-                    "w": 0f64,
-                    "h": 0f64,
-                    "mouse": {
-                        "x": 0f64,
-                        "y": 0f64,
-                        "pressedL": false,
-                        "pressedR": false,
-                    },
-                    "addShape": null,
-                    "addText": null,
-                }),
-            ) else {
-                return Err(core::JsRuntimeError::RuntimeError(
-                    "failed to create argument".to_string(),
-                ));
-            };
+            let mouse = Dict::new(scope)
+                .add_number("x", args.mouse_x)?
+                .add_number("y", args.mouse_y)?
+                .add_bool("pressedL", args.pressed_l)?
+                .add_bool("pressedR", args.pressed_r)?
+                .value();
+            let arg = Dict::new(scope)
+                .add_number("w", args.w)?
+                .add_number("h", args.h)?
+                .add("mouse", mouse)?
+                // TODO
+                //.add("addShape", v8::null(scope).into())?
+                //.add("addText", v8::null(scope).into())?
+                .value();
 
             // callback 呼び出し
             let this = v8::undefined(scope).into();
@@ -171,6 +146,15 @@ impl<'a> Runtime<'a> {
         }
         result
     }
+}
+
+pub(crate) struct GuiArgs {
+    w: f64,
+    h: f64,
+    mouse_x: f64,
+    mouse_y: f64,
+    pressed_l: bool,
+    pressed_r: bool,
 }
 
 #[cfg(test)]

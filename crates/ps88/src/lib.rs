@@ -1,34 +1,34 @@
-mod api;
+//mod api;
 mod editor;
 mod file_watcher;
-pub mod js;
+mod js;
 mod params;
-mod runtime;
 
 use nih_plug::prelude::*;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub struct PS88 {
     // プラグイン内で保持するデータ
     params: Arc<params::PS88Params>,
 
     // JavaScript のランタイム
-    runtime: Arc<Mutex<dyn runtime::runtime::ScriptRuntime + Sync + Send>>,
+    runtime: Arc<js::ps88js::RuntimeActor>,
 
     // API object
-    api: Arc<Mutex<api::Api>>,
-
+    //api: Arc<Mutex<api::Api>>,
     sample_rate: f32,
     time: u64,
 }
 
 impl Default for PS88 {
     fn default() -> Self {
-        let runtime: Arc<Mutex<dyn runtime::runtime::ScriptRuntime + Sync + Send>> =
-            Arc::new(Mutex::new(runtime::js_sync::JsRuntime::new()));
+        // TODO: ロガーを後から設定できるようにする
+        let logger = |s: String| println!("{}", s);
+        let runtime: Arc<js::ps88js::RuntimeActor> =
+            Arc::new(js::ps88js::RuntimeActor::new(logger).unwrap());
         Self {
             params: Arc::new(params::PS88Params::default()),
-            api: Arc::new(Mutex::new(api::Api::new())),
+            //api: Arc::new(Mutex::new(api::Api::new())),
             runtime,
             sample_rate: 1.0,
             time: 0,
@@ -86,8 +86,10 @@ impl Plugin for PS88 {
     ) -> bool {
         // デフォルトのスクリプトをコンパイル
         {
-            let mut runtime = self.runtime.lock().unwrap();
-            if let Err(err) = (&mut runtime).compile(&*self.params.code.lock().unwrap().clone()) {
+            if let Err(err) = self
+                .runtime
+                .compile(&*self.params.code.lock().unwrap().clone())
+            {
                 log::error!("{}", err);
             }
         }
@@ -105,21 +107,8 @@ impl Plugin for PS88 {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // TODO: コピー回数をもっと減らして効率化できそう
-
-        // 2 次元配列を 1 次元配列に変換
-        // [[L, L, L, L], [R, R, R, R]] -> [L, L, L, L, R, R, R, R]
-        let slice = buffer.as_slice();
-        let len = slice.iter().map(|s| s.len()).sum();
-        let mut audio = slice
-            .iter()
-            .fold(Vec::with_capacity(len), |mut input, channel| {
-                input.extend_from_slice(channel);
-                input
-            });
-
         // イベントを取得
-        let mut midi = Vec::<u8>::new();
+        let mut midi = Vec::<[u8; 7]>::new();
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn {
@@ -134,7 +123,7 @@ impl Plugin for PS88 {
                     e[4] = 0x90 | channel;
                     e[5] = note;
                     e[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
-                    midi.extend_from_slice(&e);
+                    midi.push(e);
                 }
                 NoteEvent::NoteOff {
                     timing,
@@ -148,7 +137,7 @@ impl Plugin for PS88 {
                     e[4] = 0x80 | channel;
                     e[5] = note;
                     e[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
-                    midi.extend_from_slice(&e);
+                    midi.push(e);
                 }
                 // TODO: 他のイベントも処理する
                 _ => {}
@@ -157,21 +146,20 @@ impl Plugin for PS88 {
 
         // スクリプトを実行
         {
-            let mut runtime = self.runtime.lock().unwrap();
-            let sampling_rate = self.sample_rate;
-            if let Err(e) = (&mut runtime).audio(&mut audio, slice.len(), sampling_rate, &midi) {
-                (&mut runtime).reset();
+            if let Err(e) = self
+                .runtime
+                // TODO: current_frame, bpm を渡す
+                .audio(
+                    buffer.as_slice(),
+                    &mut midi,
+                    self.sample_rate as f64,
+                    0,
+                    0f64,
+                )
+            {
                 log::error!("{}", e);
             }
         }
-
-        // 1 次元配列を 2 次元配列に変換
-        // [L, L, L, L, R, R, R, R] -> [[L, L, L, L], [R, R, R, R]]
-        slice.iter_mut().fold(0, |offset, channel| {
-            let len = channel.len();
-            channel.copy_from_slice(&audio[offset..offset + len]);
-            offset + len
-        });
 
         ProcessStatus::Normal
     }

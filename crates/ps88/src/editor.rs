@@ -1,5 +1,5 @@
 use super::file_watcher::Watcher;
-use crate::runtime::runtime;
+use crate::js;
 use lyon::math::point;
 use lyon::path::Path;
 use lyon::tessellation::*;
@@ -40,21 +40,20 @@ impl UserState {
 
 pub fn editor(
     params: Arc<crate::params::PS88Params>,
-    runtime: Arc<Mutex<dyn crate::runtime::runtime::ScriptRuntime + Sync + Send>>,
+    runtime: Arc<js::ps88js::RuntimeActor>,
 ) -> Option<Box<dyn Editor>> {
     let user_state = UserState::new();
     let weak_log = Arc::downgrade(&user_state.log);
-    runtime
-        .lock()
-        .unwrap()
-        .add_logger(Box::new(move |log| {
-            let Some(logger) = weak_log.upgrade() else {
-                return false;
-            };
-            logger.lock().unwrap().push((log, LogType::Info));
-            return true;
-        }))
-        .unwrap();
+    // TODO: 以下のコメントアウトを外す
+    //runtime
+    //    .add_logger(Box::new(move |log| {
+    //        let Some(logger) = weak_log.upgrade() else {
+    //            return false;
+    //        };
+    //        logger.lock().unwrap().push((log, LogType::Info));
+    //        return true;
+    //    }))
+    //    .unwrap();
     create_egui_editor(
         params.editor_state.clone(),
         user_state,
@@ -149,7 +148,7 @@ pub fn editor(
                                 let result = rfd::FileDialog::new().pick_file();
                                 if let Some(path) = result {
                                     if let Ok(watcher) = load_script(&path, move |code| {
-                                        if let Err(err) = runtime.lock().unwrap().compile(&*code) {
+                                        if let Err(err) = runtime.compile(&*code) {
                                             if let Some(logger) = weak_log.upgrade() {
                                                 logger.lock().unwrap().push((err.to_string(), LogType::Error));
                                             }
@@ -191,148 +190,148 @@ pub fn editor(
     )
 }
 
-struct CanvasWidget(
-    Arc<Mutex<dyn crate::runtime::runtime::ScriptRuntime + Sync + Send>>,
-    egui::Context,
-);
+struct CanvasWidget(Arc<js::ps88js::RuntimeActor>, egui::Context);
 impl egui::Widget for CanvasWidget {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
         let offset = ui.min_rect().min.to_vec2();
         let size = ui.min_rect().size();
 
-        let area = runtime::Pos2 {
-            x: size.x,
-            y: size.y,
-        };
-        let mouse = ui.input(|s| {
-            let pos = s.pointer.interact_pos().unwrap_or_default();
-            crate::runtime::runtime::Mouse {
-                x: pos.x - offset.x,
-                y: pos.y - offset.y,
-                left: s.pointer.primary_down(),
-                right: s.pointer.secondary_down(),
-            }
-        });
-        let shapes = self.0.lock().unwrap().gui(&area, &mouse);
-        let shapes = match shapes {
-            Ok(shapes) => shapes,
-            Err(err) => {
-                log::error!("failed to call gui: {}", err);
-                self.0.lock().unwrap().reset();
-                return response;
-            }
-        };
+        _ = (offset, size, painter);
+        /*
+            let area = runtime::Pos2 {
+                x: size.x,
+                y: size.y,
+            };
+            let mouse = ui.input(|s| {
+                let pos = s.pointer.interact_pos().unwrap_or_default();
+                crate::runtime::runtime::Mouse {
+                    x: pos.x - offset.x,
+                    y: pos.y - offset.y,
+                    left: s.pointer.primary_down(),
+                    right: s.pointer.secondary_down(),
+                }
+            });
+            let shapes = self.0.lock().unwrap().gui(&area, &mouse);
+            let shapes = match shapes {
+                Ok(shapes) => shapes,
+                Err(err) => {
+                    log::error!("failed to call gui: {}", err);
+                    self.0.lock().unwrap().reset();
+                    return response;
+                }
+            };
 
-        let mut fill_tessellator = FillTessellator::new();
-        let mut stroke_tessellator = StrokeTessellator::new();
-        for shape in shapes.iter() {
-            match shape {
-                runtime::Shape::Polygon(polygon) => {
-                    let mut builder = Path::builder();
-                    for (i, p) in polygon.shape.chunks_exact(2).enumerate() {
-                        if i == 0 {
-                            builder.begin(point(p[0] + offset.x, p[1] + offset.y));
-                        } else {
-                            builder.line_to(point(p[0] + offset.x, p[1] + offset.y));
+            let mut fill_tessellator = FillTessellator::new();
+            let mut stroke_tessellator = StrokeTessellator::new();
+            for shape in shapes.iter() {
+                match shape {
+                    runtime::Shape::Polygon(polygon) => {
+                        let mut builder = Path::builder();
+                        for (i, p) in polygon.shape.chunks_exact(2).enumerate() {
+                            if i == 0 {
+                                builder.begin(point(p[0] + offset.x, p[1] + offset.y));
+                            } else {
+                                builder.line_to(point(p[0] + offset.x, p[1] + offset.y));
+                            }
+                        }
+                        builder.end(polygon.stroke_closed.unwrap_or(false));
+                        let path = builder.build();
+                        if let Some(fill) = polygon.fill {
+                            let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
+                                VertexBuffers::new();
+                            fill_tessellator
+                                .tessellate_path(
+                                    &path,
+                                    &FillOptions::default(),
+                                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+                                        egui::epaint::Vertex {
+                                            pos: egui::pos2(vertex.position().x, vertex.position().y),
+                                            uv: egui::epaint::WHITE_UV,
+                                            color: egui::Color32::from_rgba_premultiplied(
+                                                (fill >> 24) as u8,
+                                                ((fill >> 16) & 0xff) as u8,
+                                                ((fill >> 8) & 0xff) as u8,
+                                                (fill & 0xff) as u8,
+                                            ),
+                                        }
+                                    }),
+                                )
+                                .unwrap();
+                            let mesh = egui::Shape::Mesh(
+                                egui::Mesh {
+                                    indices: geometry.indices,
+                                    vertices: geometry.vertices,
+                                    // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
+                                    // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
+                                    texture_id: egui::TextureId::default(),
+                                }
+                                .into(),
+                            );
+                            painter.add(mesh);
+                        }
+                        if let Some(stroke) = polygon.stroke {
+                            let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
+                                VertexBuffers::new();
+                            stroke_tessellator
+                                .tessellate_path(
+                                    &path,
+                                    &StrokeOptions::default()
+                                        .with_line_width(polygon.stroke_width.unwrap_or(1.0))
+                                        .with_line_join(LineJoin::Bevel),
+                                    &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
+                                        egui::epaint::Vertex {
+                                            pos: egui::pos2(vertex.position().x, vertex.position().y),
+                                            uv: egui::epaint::WHITE_UV,
+                                            color: egui::Color32::from_rgba_premultiplied(
+                                                (stroke >> 24) as u8,
+                                                ((stroke >> 16) & 0xff) as u8,
+                                                ((stroke >> 8) & 0xff) as u8,
+                                                (stroke & 0xff) as u8,
+                                            ),
+                                        }
+                                    }),
+                                )
+                                .unwrap();
+                            let mesh = egui::Shape::Mesh(
+                                egui::Mesh {
+                                    indices: geometry.indices,
+                                    vertices: geometry.vertices,
+                                    // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
+                                    // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
+                                    texture_id: egui::TextureId::default(),
+                                }
+                                .into(),
+                            );
+                            painter.add(mesh);
                         }
                     }
-                    builder.end(polygon.stroke_closed.unwrap_or(false));
-                    let path = builder.build();
-                    if let Some(fill) = polygon.fill {
-                        let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
-                            VertexBuffers::new();
-                        fill_tessellator
-                            .tessellate_path(
-                                &path,
-                                &FillOptions::default(),
-                                &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-                                    egui::epaint::Vertex {
-                                        pos: egui::pos2(vertex.position().x, vertex.position().y),
-                                        uv: egui::epaint::WHITE_UV,
-                                        color: egui::Color32::from_rgba_premultiplied(
-                                            (fill >> 24) as u8,
-                                            ((fill >> 16) & 0xff) as u8,
-                                            ((fill >> 8) & 0xff) as u8,
-                                            (fill & 0xff) as u8,
-                                        ),
-                                    }
-                                }),
-                            )
-                            .unwrap();
-                        let mesh = egui::Shape::Mesh(
-                            egui::Mesh {
-                                indices: geometry.indices,
-                                vertices: geometry.vertices,
-                                // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
-                                // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
-                                texture_id: egui::TextureId::default(),
-                            }
-                            .into(),
+                    runtime::Shape::Text(text) => {
+                        let color = text.color.unwrap_or(0x000000FF);
+                        let color = egui::Color32::from_rgba_premultiplied(
+                            (color >> 24) as u8,
+                            ((color >> 16) & 0xff) as u8,
+                            ((color >> 8) & 0xff) as u8,
+                            (color & 0xff) as u8,
                         );
-                        painter.add(mesh);
+                        let text = egui::Shape::Text(egui::epaint::TextShape::new(
+                            text.pos
+                                .map_or(egui::pos2(0.0, 0.0), |pos| egui::pos2(pos[0], pos[1]))
+                                .add(offset),
+                            self.1.fonts(|fonts| {
+                                fonts.layout_job(egui::text::LayoutJob::simple_singleline(
+                                    text.text.clone(),
+                                    egui::FontId::monospace(text.size.unwrap_or(12.0)),
+                                    color,
+                                ))
+                            }),
+                            egui::Color32::TRANSPARENT,
+                        ));
+                        painter.add(text);
                     }
-                    if let Some(stroke) = polygon.stroke {
-                        let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
-                            VertexBuffers::new();
-                        stroke_tessellator
-                            .tessellate_path(
-                                &path,
-                                &StrokeOptions::default()
-                                    .with_line_width(polygon.stroke_width.unwrap_or(1.0))
-                                    .with_line_join(LineJoin::Bevel),
-                                &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
-                                    egui::epaint::Vertex {
-                                        pos: egui::pos2(vertex.position().x, vertex.position().y),
-                                        uv: egui::epaint::WHITE_UV,
-                                        color: egui::Color32::from_rgba_premultiplied(
-                                            (stroke >> 24) as u8,
-                                            ((stroke >> 16) & 0xff) as u8,
-                                            ((stroke >> 8) & 0xff) as u8,
-                                            (stroke & 0xff) as u8,
-                                        ),
-                                    }
-                                }),
-                            )
-                            .unwrap();
-                        let mesh = egui::Shape::Mesh(
-                            egui::Mesh {
-                                indices: geometry.indices,
-                                vertices: geometry.vertices,
-                                // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
-                                // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
-                                texture_id: egui::TextureId::default(),
-                            }
-                            .into(),
-                        );
-                        painter.add(mesh);
-                    }
-                }
-                runtime::Shape::Text(text) => {
-                    let color = text.color.unwrap_or(0x000000FF);
-                    let color = egui::Color32::from_rgba_premultiplied(
-                        (color >> 24) as u8,
-                        ((color >> 16) & 0xff) as u8,
-                        ((color >> 8) & 0xff) as u8,
-                        (color & 0xff) as u8,
-                    );
-                    let text = egui::Shape::Text(egui::epaint::TextShape::new(
-                        text.pos
-                            .map_or(egui::pos2(0.0, 0.0), |pos| egui::pos2(pos[0], pos[1]))
-                            .add(offset),
-                        self.1.fonts(|fonts| {
-                            fonts.layout_job(egui::text::LayoutJob::simple_singleline(
-                                text.text.clone(),
-                                egui::FontId::monospace(text.size.unwrap_or(12.0)),
-                                color,
-                            ))
-                        }),
-                        egui::Color32::TRANSPARENT,
-                    ));
-                    painter.add(text);
                 }
             }
-        }
+        */
         response
     }
 }

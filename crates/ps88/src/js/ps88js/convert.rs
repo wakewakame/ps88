@@ -15,6 +15,18 @@ impl<'a, 'b> Dict<'a, 'b> {
         self.obj.set(self.scope, key_js.into(), value);
         Ok(self)
     }
+    pub(crate) fn add_number(self, key: &str, value: f64) -> core::Result<Self> {
+        let key_js = core::v8str(self.scope, key)?;
+        let value_js = v8::Number::new(self.scope, value);
+        self.obj.set(self.scope, key_js.into(), value_js.into());
+        Ok(self)
+    }
+    pub(crate) fn add_bool(self, key: &str, value: bool) -> core::Result<Self> {
+        let key_js = core::v8str(self.scope, key)?;
+        let value_js = v8::Boolean::new(self.scope, value);
+        self.obj.set(self.scope, key_js.into(), value_js.into());
+        Ok(self)
+    }
     pub(crate) fn value(self) -> v8::Local<'b, v8::Value> {
         self.obj.into()
     }
