@@ -1,3 +1,4 @@
+use crate::js::ps88js::UserData;
 use nih_plug::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +13,7 @@ pub struct PS88Params {
 
     // ユーザーが保存できる任意のバイナリデータ
     #[persist = "userdata"]
-    pub userdata: Arc<Mutex<Vec<u8>>>,
+    pub userdata: Arc<Mutex<UserData>>,
 
     // パラメータの数は固定で 4 つだけ
     // TODO: JavaScript から参照・操作できるようにする
@@ -30,7 +31,7 @@ impl Default for PS88Params {
     fn default() -> Self {
         Self {
             code: Arc::new(Mutex::new(String::from(DEFAULT_SCRIPT))),
-            userdata: Arc::new(Mutex::new(Vec::new())),
+            userdata: Arc::new(Mutex::new(UserData::None)),
             param1: FloatParam::new("Param1", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             param2: FloatParam::new("Param2", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             param3: FloatParam::new("Param3", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),

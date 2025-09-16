@@ -1,7 +1,7 @@
 console.log("hello");
 
-console.log([...ps88.load()]);
-ps88.save(new Uint8Array([1, 2, 3, 42]));
+console.log(ps88.load());
+ps88.save("saved data");
 
 const toMono = (audio) => {
   return audio.reduce((ch1, ch2, ch) => (

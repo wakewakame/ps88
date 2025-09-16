@@ -16,7 +16,7 @@ pub struct Runtime<'a> {
 }
 
 impl Runtime<'_> {
-    pub fn new(userdata: Arc<Mutex<Vec<u8>>>) -> core::Result<Self> {
+    pub fn new(userdata: Arc<Mutex<UserData>>) -> core::Result<Self> {
         let status = Rc::new(RefCell::new(Status {
             audio_callback: None,
             gui_callback: None,
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_add_logger() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let mut rt = Runtime::new(userdata).unwrap();
 
         // ログが受信できる
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_audio() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let mut rt = Runtime::new(userdata).unwrap();
 
         // 入出力の確認
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_gui() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let mut rt = Runtime::new(userdata).unwrap();
 
         // 入出力の確認
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_save_load() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let mut rt = Runtime::new(userdata.clone()).unwrap();
         let (tx, rx) = channel();
         rt.add_logger(Box::new(move |msg: String| {
@@ -399,21 +399,36 @@ mod tests {
             true
         }));
 
-        // 任意のデータを保存できる
-        rt.compile("ps88.save(new Uint8Array([1, 2, 3]));").unwrap();
-        assert_eq!(&*userdata.lock().unwrap(), &[1, 2, 3]);
+        // 初期状態は null
+        rt.compile("console.log(ps88.load());").unwrap();
+        assert_eq!(rx.recv().unwrap(), "null");
 
-        // 保存したデータを読み込める
+        // 任意のデータを書き込み/読み込みできる
+        rt.compile("ps88.save(new Uint8Array([1, 2]));").unwrap();
+        assert_eq!(&*userdata.lock().unwrap(), &UserData::Bytes(vec![1, 2]));
         rt.compile("console.log(JSON.stringify([...ps88.load()]));")
             .unwrap();
-        assert_eq!(rx.recv().unwrap(), "[1,2,3]");
+        assert_eq!(rx.recv().unwrap(), "[1,2]");
 
         // データの上書きもできる
-        rt.compile("ps88.save(new Uint8Array([4, 5, 6, 7, 8]));")
-            .unwrap();
-        assert_eq!(&*userdata.lock().unwrap(), &[4, 5, 6, 7, 8]);
+        rt.compile("ps88.save(new Uint8Array([3, 4, 5]));").unwrap();
+        assert_eq!(&*userdata.lock().unwrap(), &UserData::Bytes(vec![3, 4, 5]));
         rt.compile("console.log(JSON.stringify([...ps88.load()]));")
             .unwrap();
-        assert_eq!(rx.recv().unwrap(), "[4,5,6,7,8]");
+        assert_eq!(rx.recv().unwrap(), "[3,4,5]");
+
+        // 文字列も保存できる
+        rt.compile("ps88.save('test123');").unwrap();
+        assert_eq!(
+            &*userdata.lock().unwrap(),
+            &UserData::Text("test123".to_string())
+        );
+        rt.compile("console.log(ps88.load());").unwrap();
+        assert_eq!(rx.recv().unwrap(), "test123");
+
+        // それ以外の型はエラーとなり、データは上書きされない
+        rt.compile("ps88.save(123);").unwrap_err();
+        rt.compile("console.log(ps88.load());").unwrap();
+        assert_eq!(rx.recv().unwrap(), "test123");
     }
 }

@@ -1,6 +1,7 @@
 use super::super::core;
 use super::gui_api::*;
 use super::runtime::*;
+use super::status::*;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +16,7 @@ pub struct RuntimeActor {
     args: Arc<Mutex<RuntimeActorArgs>>,
 }
 impl RuntimeActor {
-    pub fn new(userdata: Arc<Mutex<Vec<u8>>>) -> core::Result<Self> {
+    pub fn new(userdata: Arc<Mutex<UserData>>) -> core::Result<Self> {
         let args = Arc::new(Mutex::new(RuntimeActorArgs {
             audio: Vec::new(),
             midi: Vec::new(),
@@ -186,7 +187,7 @@ mod tests {
     #[test]
     fn test_add_logger() {
         use std::sync::mpsc::*;
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let rt = RuntimeActor::new(userdata).unwrap();
 
         // ログが受信できる
@@ -212,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_audio() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let rt = RuntimeActor::new(userdata).unwrap();
 
         // 入出力の確認
@@ -247,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_gui() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let rt = RuntimeActor::new(userdata).unwrap();
 
         // 入出力の確認
@@ -299,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_save_load() {
-        let userdata = Arc::new(Mutex::new(vec![]));
+        let userdata = Arc::new(Mutex::new(UserData::None));
         let mut rt = Runtime::new(userdata.clone()).unwrap();
         let (tx, rx) = channel();
         rt.add_logger(Box::new(move |msg: String| {
@@ -307,21 +308,11 @@ mod tests {
             true
         }));
 
-        // 任意のデータを保存できる
-        rt.compile("ps88.save(new Uint8Array([1, 2, 3]));").unwrap();
-        assert_eq!(&*userdata.lock().unwrap(), &[1, 2, 3]);
-
-        // 保存したデータを読み込める
+        // 任意のデータを書き込み/読み込みできる
+        rt.compile("ps88.save(new Uint8Array([1, 2]));").unwrap();
+        assert_eq!(&*userdata.lock().unwrap(), &UserData::Bytes(vec![1, 2]));
         rt.compile("console.log(JSON.stringify([...ps88.load()]));")
             .unwrap();
-        assert_eq!(rx.recv().unwrap(), "[1,2,3]");
-
-        // データの上書きもできる
-        rt.compile("ps88.save(new Uint8Array([4, 5, 6, 7, 8]));")
-            .unwrap();
-        assert_eq!(&*userdata.lock().unwrap(), &[4, 5, 6, 7, 8]);
-        rt.compile("console.log(JSON.stringify([...ps88.load()]));")
-            .unwrap();
-        assert_eq!(rx.recv().unwrap(), "[4,5,6,7,8]");
+        assert_eq!(rx.recv().unwrap(), "[1,2]");
     }
 }

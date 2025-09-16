@@ -38,45 +38,66 @@ impl Api {
         status.gui_callback = Some(callback);
     }
     pub(super) fn save(&mut self, info: core::CallbackInfo) {
-        let data = match info.args.get(0).try_cast::<v8::Uint8Array>() {
-            Ok(v) => v,
-            Err(err) => {
-                return core::v8throw_type_error(
-                    info.scope,
-                    &format!("argument must be a Uint8Array: {}", err),
-                );
-            }
-        };
         let status = self.status.borrow();
         let mut userdata = match status.userdata.lock() {
             Ok(v) => v,
             Err(err) => {
-                return core::v8throw_type_error(
-                    info.scope,
-                    &format!("unexpected mutex error: {}", err),
-                );
+                return core::v8throw(info.scope, &format!("unexpected mutex error: {}", err));
             }
         };
-        userdata.resize(data.length(), 0);
-        let n = data.copy_contents(&mut userdata);
-        assert_eq!(n, userdata.len());
+        if let Ok(data) = info.args.get(0).try_cast::<v8::Uint8Array>() {
+            let mut bytes = vec![0u8; data.length()];
+            let n = data.copy_contents(&mut bytes[..]);
+            assert_eq!(n, bytes.len());
+            *userdata = UserData::Bytes(bytes);
+            return;
+        }
+        if let Ok(data) = info.args.get(0).try_cast::<v8::String>() {
+            let text = data.to_rust_string_lossy(info.scope);
+            *userdata = UserData::Text(text);
+            return;
+        }
+        return core::v8throw_type_error(
+            info.scope,
+            &format!("argument must be a Uint8Array or String"),
+        );
     }
     pub(super) fn load(&mut self, mut info: core::CallbackInfo) {
         let status = self.status.borrow();
         let userdata = match status.userdata.lock() {
-            Ok(v) => v.clone(),
+            Ok(v) => v,
             Err(err) => {
-                return core::v8throw_type_error(
-                    info.scope,
-                    &format!("unexpected mutex error: {}", err),
-                );
+                return core::v8throw(info.scope, &format!("unexpected mutex error: {}", err));
             }
         };
-        let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(userdata).into();
-        let array_buffer = v8::ArrayBuffer::with_backing_store(info.scope, &backing_store);
-        let uint8_array =
-            v8::Uint8Array::new(info.scope, array_buffer, 0, backing_store.byte_length()).unwrap();
-        info.rv.set(uint8_array.into());
+        match &*userdata {
+            UserData::None => {
+                info.rv.set_null();
+                return;
+            }
+            UserData::Text(text) => {
+                let v8_str = match v8::String::new(info.scope, text) {
+                    Some(v) => v,
+                    None => {
+                        return core::v8throw(info.scope, "failed to create string");
+                    }
+                };
+                info.rv.set(v8_str.into());
+                return;
+            }
+            UserData::Bytes(bytes) => {
+                let backing_store =
+                    v8::ArrayBuffer::new_backing_store_from_vec(bytes.clone()).into();
+                let array_buffer = v8::ArrayBuffer::with_backing_store(info.scope, &backing_store);
+                let Some(uint8_array) =
+                    v8::Uint8Array::new(info.scope, array_buffer, 0, backing_store.byte_length())
+                else {
+                    return core::v8throw(info.scope, "failed to create Uint8Array");
+                };
+                info.rv.set(uint8_array.into());
+                return;
+            }
+        };
     }
 }
 impl core::This<'_> for Api {
