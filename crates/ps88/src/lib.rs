@@ -1,8 +1,9 @@
-mod editor;
 mod file_watcher;
+mod gui;
 mod js;
 mod params;
 
+use gui::editor;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
