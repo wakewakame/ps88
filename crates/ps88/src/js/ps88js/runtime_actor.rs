@@ -133,7 +133,7 @@ impl RuntimeActor {
 
         Ok(())
     }
-    pub fn gui(&mut self, args: GuiArgs) -> core::Result<Vec<Shape>> {
+    pub fn gui(&self, args: GuiArgs) -> core::Result<Vec<Shape>> {
         let (tx, rx) = channel();
         let sender = &self.thread.as_ref().unwrap().1;
         sender
@@ -182,67 +182,56 @@ mod tests {
     #[test]
     fn test_audio() {
         let rt = RuntimeActor::new(|_| {}).unwrap();
+
+        // 入出力の確認
         rt.compile(
-            r#"ps88.audio((arg) => {
-    if (arg.sampleRate !== 48000.0) {
-        throw new Error("sampleRate must be 48000.0");
-    }
-    if (arg.currentFrame !== 1024) {
-        throw new Error("currentFrame must be 1024");
-    }
-    if (arg.bpm !== 120.0) {
-        throw new Error("bpm must be 120.0");
-    }
-    let audio = arg.audio;
-    let midi = arg.midi;
-    for (let ch = 0; ch < audio.length; ch++) {
-        for (let i = 0; i < audio[ch].length; i++) {
-            audio[ch][i] *= 2.0;
-        }
-    }
-    for (let ev = 0; ev < midi.length; ev++) {
-        midi[ev][6] += 10;
-    }
-    midi.push([0, 0, 0, 0, 0x80, 57, 30]);
-});"#,
+            r#"
+                "use strict";
+                ps88.audio((ctx) => {
+                    if (ctx.sampleRate !== 48000) { throw new Error(`sampleRate: ${ctx.sampleRate}`); }
+                    if (ctx.currentFrame !== 1024) { throw new Error(`currentFrame: ${ctx.currentFrame}`); }
+                    if (ctx.bpm !== 120) { throw new Error(`bpm: ${ctx.bpm}`); }
+                    let audio = JSON.stringify(ctx.audio.map(ch => [...ch]));
+                    if (audio !== "[[1,2,3],[4,5,6]]") { throw new Error(`audio: ${audio}`); }
+                    let midi = JSON.stringify(ctx.midi);
+                    if (midi !== "[[0,1,2,3,4,5,6],[7,8,9,10,11,12,13]]") { throw new Error(`midi: ${midi}`); }
+                    for (let ch = 0; ch < ctx.audio.length; ch++) {
+                        for (let i = 0; i < ctx.audio[ch].length; i++) {
+                            ctx.audio[ch][i] *= 2.0;
+                        }
+                    }
+                    ctx.midi.splice(0, ctx.midi.length, [14, 15, 16, 17, 18, 19, 20]);
+                });
+            "#,
         )
         .unwrap();
-        let mut audio = vec![vec![0.1f32, 0.2, 0.3], vec![0.4, 0.5, 0.6]];
-        let mut midi = vec![[0, 0, 0, 0, 0x80, 69, 10]];
-        let mut audio_slice = audio
-            .iter_mut()
-            .map(|ch| ch.as_mut_slice())
-            .collect::<Vec<_>>();
-        rt.audio(audio_slice.as_mut_slice(), &mut midi, 48000.0, 1024, 120.0)
+        let mut audio = [&mut [1f32, 2., 3.][..], &mut [4., 5., 6.][..]];
+        let mut midi = vec![[0u8, 1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12, 13]];
+        rt.audio(&mut audio[..], &mut midi, 48000.0, 1024, 120.0)
             .unwrap();
-        assert_eq!(audio, vec![vec![0.2f32, 0.4, 0.6], vec![0.8, 1.0, 1.2]]);
-        assert_eq!(
-            midi,
-            vec![[0, 0, 0, 0, 0x80, 69, 20], [0, 0, 0, 0, 0x80, 57, 30]]
-        );
+        assert_eq!(audio, [[2f32, 4., 6.], [8., 10., 12.]]);
+        assert_eq!(midi, vec![[14, 15, 16, 17, 18, 19, 20]]);
     }
 
     #[test]
     fn test_gui() {
-        let mut rt = Runtime::new(|msg| println!("{}", msg)).unwrap();
+        let rt = RuntimeActor::new(|msg| println!("{}", msg)).unwrap();
+
+        // 入出力の確認
         rt.compile(
-            r#"ps88.gui((arg) => {
-    if (arg.w !== 640) { throw new Error("w must be 640"); }
-    if (arg.h !== 480) { throw new Error("h must be 480"); }
-    if (arg.mouse.x !== 100) { throw new Error("mouse.x must be 100"); }
-    if (arg.mouse.y !== 200) { throw new Error("mouse.y must be 200"); }
-    if (arg.mouse.pressedL !== true) { throw new Error("mouse.pressedL must be true"); }
-    if (arg.mouse.pressedR !== false) { throw new Error("mouse.pressedR must be false"); }
-    arg.addPolygon([[1, 2], [3, 4]], { fill: 0xff0000 });
-    /*
-      addPolygon: (path: [number, number][], options?: {
-        fill?: number,
-        stroke?: number,
-        strokeWidth?: number,
-        strokeClosed?: boolean,
-      }) => void,
-    */
-});"#,
+            r#"
+                "use strict";
+                ps88.gui((ctx) => {
+                    if (ctx.w !== 640) { throw new Error(`w: ${ctx.w}`); }
+                    if (ctx.h !== 480) { throw new Error(`h: ${ctx.h}`); }
+                    if (ctx.mouse.x !== 100) { throw new Error(`mouse.x: ${ctx.mouse.x}`); }
+                    if (ctx.mouse.y !== 200) { throw new Error(`mouse.y: ${ctx.mouse.y}`); }
+                    if (ctx.mouse.pressedL !== true) { throw new Error(`mouse.pressedL: ${ctx.mouse.pressedL}`); }
+                    if (ctx.mouse.pressedR !== false) { throw new Error(`mouse.pressedR: ${ctx.mouse.pressedR}`); }
+                    ctx.addPolygon([[1, 2], [3, 4]], { fill: 0xff0000, stroke: 0x00ff00, strokeWidth: 2, strokeClosed: true });
+                    ctx.addText("Hello", 10, 20, { size: 30, color: 0x0000ff });
+                });
+            "#,
         )
         .unwrap();
         let args = GuiArgs {
@@ -256,13 +245,22 @@ mod tests {
         let shapes = rt.gui(args).unwrap();
         assert_eq!(
             shapes,
-            vec![Shape::Polygon {
-                path: vec![(1.0, 2.0), (3.0, 4.0)],
-                fill: Some(0xff0000),
-                stroke: None,
-                stroke_width: None,
-                stroke_closed: None,
-            }]
+            vec![
+                Shape::Polygon {
+                    path: vec![(1.0, 2.0), (3.0, 4.0)],
+                    fill: Some(0xff0000),
+                    stroke: Some(0x00ff00),
+                    stroke_width: Some(2.0),
+                    stroke_closed: Some(true),
+                },
+                Shape::Text {
+                    text: "Hello".to_string(),
+                    x: 10.0,
+                    y: 20.0,
+                    size: Some(30.0),
+                    color: Some(0x0000ff),
+                },
+            ]
         );
     }
 }

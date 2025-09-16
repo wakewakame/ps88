@@ -51,7 +51,7 @@ impl<'a, T: This<'a>> Api<'a, T> {
 
         // Rust の関数やクロージャを v8::FunctionCallback としてラップする
         //
-        // MEMO: rusty_v8 には以下のようにクロージャを登録できる仕組みがあり、これを参考に実装している。
+        // NOTE: rusty_v8 には以下のようにクロージャを登録できる仕組みがあり、これを参考に実装している。
         //
         // ```
         // v8::FunctionBuilder::<v8::FunctionTemplate>::new(
@@ -120,11 +120,11 @@ impl<'a, T: This<'a>> ApiTrait<'a> for Api<'a, T> {
                 .build(scope);
             obj_t.set(name.into(), func.into());
         }
-        let Some(obj) = obj_t.new_instance(scope) else {
-            return Err(JsRuntimeError::UnexpectedError(
-                "failed to create api object".to_string(),
-            ));
-        };
+        let obj = obj_t
+            .new_instance(scope)
+            .ok_or(JsRuntimeError::UnexpectedError(
+                "failed to create api object".into(),
+            ))?;
         let name = v8str(scope, &self.name)?;
         context.global(scope).set(scope, name.into(), obj.into());
         Ok(())

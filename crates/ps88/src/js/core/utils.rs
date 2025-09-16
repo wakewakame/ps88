@@ -5,12 +5,10 @@ pub fn v8str<'s>(
     scope: &mut v8::HandleScope<'s, ()>,
     s: &str,
 ) -> Result<v8::Local<'s, v8::String>> {
-    let Some(name) = v8::String::new(scope, s) else {
-        return Err(JsRuntimeError::UnexpectedError(format!(
-            "failed to create string: {}",
-            s
-        )));
-    };
+    let name = v8::String::new(scope, s).ok_or(JsRuntimeError::UnexpectedError(format!(
+        "failed to create string: {}",
+        s
+    )))?;
     Ok(name)
 }
 

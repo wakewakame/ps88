@@ -139,12 +139,11 @@ impl<'a> JsRuntime<'a> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
         let code = v8str(scope, code)?;
         let try_catch = &mut v8::TryCatch::new(scope);
-        let Some(script) = v8::Script::compile(try_catch, code, None) else {
-            return Err(JsRuntimeError::CompileError(report_exceptions(try_catch)));
-        };
-        let Some(result) = script.run(try_catch) else {
-            return Err(JsRuntimeError::RuntimeError(report_exceptions(try_catch)));
-        };
+        let script = v8::Script::compile(try_catch, code, None)
+            .ok_or(JsRuntimeError::CompileError(report_exceptions(try_catch)))?;
+        let result = script
+            .run(try_catch)
+            .ok_or(JsRuntimeError::RuntimeError(report_exceptions(try_catch)))?;
         Ok(result)
     }
 

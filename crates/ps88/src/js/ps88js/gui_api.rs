@@ -36,7 +36,9 @@ pub(super) fn gen_api_add_polygon<'a, 'b>(
         struct Arg1 {
             fill: Option<Color>,
             stroke: Option<Color>,
+            #[serde(rename = "strokeWidth")]
             stroke_width: Option<f64>,
+            #[serde(rename = "strokeClosed")]
             stroke_closed: Option<bool>,
         }
         let path = match serde_v8::from_v8::<Arg0>(scope, args.get(0)) {
@@ -92,10 +94,6 @@ pub(super) fn gen_api_add_text<'a, 'b>(
         args: v8::FunctionCallbackArguments,
         _: v8::ReturnValue,
     ) {
-        //addText: (text: string, x: number, y: number, options?: {
-        //  size?: number,
-        //  color?: number,
-        //}) => void,
         type Arg0 = String;
         type Arg1 = f64;
         type Arg2 = f64;

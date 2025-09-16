@@ -70,7 +70,7 @@ impl<'a> Runtime<'a> {
             let midi_js = midi_to_arr(scope, midi)?;
 
             // 引数を用意
-            let arg = Dict::new(scope)
+            let ctx = Dict::new(scope)
                 .add("audio", audio_js)?
                 .add("midi", midi_js)?
                 .add_number("sampleRate", sample_rate)?
@@ -82,11 +82,9 @@ impl<'a> Runtime<'a> {
             let this = v8::undefined(scope).into();
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
-                let Some(_) = callback.call(try_catch, this, &[arg]) else {
-                    return Err(core::JsRuntimeError::RuntimeError(core::report_exceptions(
-                        try_catch,
-                    )));
-                };
+                callback.call(try_catch, this, &[ctx]).ok_or(
+                    core::JsRuntimeError::RuntimeError(core::report_exceptions(try_catch)),
+                )?;
             }
 
             // 結果を audio, midi に書き戻す
@@ -122,7 +120,7 @@ impl<'a> Runtime<'a> {
             let shapes = v8::Array::new(scope, 0);
             let add_polygon = gen_api_add_polygon(scope, shapes)?;
             let add_text = gen_api_add_text(scope, shapes)?;
-            let arg = Dict::new(scope)
+            let ctx = Dict::new(scope)
                 .add_number("w", args.w)?
                 .add_number("h", args.h)?
                 .add("mouse", mouse)?
@@ -134,11 +132,9 @@ impl<'a> Runtime<'a> {
             let this = v8::undefined(scope).into();
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
-                let Some(_) = callback.call(try_catch, this, &[arg]) else {
-                    return Err(core::JsRuntimeError::RuntimeError(core::report_exceptions(
-                        try_catch,
-                    )));
-                };
+                callback.call(try_catch, this, &[ctx]).ok_or(
+                    core::JsRuntimeError::RuntimeError(core::report_exceptions(try_catch)),
+                )?;
             }
 
             // 結果を shapes に書き戻す
@@ -153,6 +149,7 @@ impl<'a> Runtime<'a> {
     }
 }
 
+#[derive(Default, Clone)]
 pub struct GuiArgs {
     pub w: f64,
     pub h: f64,
@@ -198,6 +195,30 @@ mod tests {
             .unwrap();
         assert_eq!(audio, [[2f32, 4., 6.], [8., 10., 12.]]);
         assert_eq!(midi, vec![[14, 15, 16, 17, 18, 19, 20]]);
+
+        // エラーが起きたら状態がリセット
+        // 3 回目の呼び出しでエラーが起きる
+        rt.compile(
+            r#"
+                "use strict";
+                let count = 0;
+                ps88.audio((ctx) => {
+                    ctx.audio[0][0] = count += 1;
+                    if (count >= 3) throw new Error("test error");
+                });
+            "#,
+        )
+        .unwrap();
+        let mut midi = vec![];
+        let mut audio = [&mut [0f32][..]];
+        rt.audio(&mut audio[..], &mut midi, 0., 0, 0.).unwrap();
+        assert_eq!(audio, [[1.]]);
+        rt.audio(&mut audio[..], &mut midi, 0., 0, 0.).unwrap();
+        assert_eq!(audio, [[2.]]);
+        rt.audio(&mut audio[..], &mut midi, 0., 0, 0.).unwrap_err(); // エラー
+        assert_eq!(audio, [[2.]]);
+        rt.audio(&mut audio[..], &mut midi, 0., 0, 0.).unwrap(); // 特に何も起きない (関数が登録されていない状態)
+        assert_eq!(audio, [[2.]]);
 
         // 途中で入力の配列長が変化しても対応できる
         rt.compile(
@@ -255,15 +276,15 @@ mod tests {
         rt.compile(
             r#"
                 "use strict";
-                ps88.gui((arg) => {
-                    if (arg.w !== 640) { throw new Error(`w: ${arg.w}`); }
-                    if (arg.h !== 480) { throw new Error(`h: ${arg.h}`); }
-                    if (arg.mouse.x !== 100) { throw new Error(`mouse.x: ${arg.mouse.x}`); }
-                    if (arg.mouse.y !== 200) { throw new Error(`mouse.y: ${arg.mouse.y}`); }
-                    if (arg.mouse.pressedL !== true) { throw new Error(`mouse.pressedL: ${arg.mouse.pressedL}`); }
-                    if (arg.mouse.pressedR !== false) { throw new Error(`mouse.pressedR: ${arg.mouse.pressedR}`); }
-                    arg.addPolygon([[1, 2], [3, 4]], { fill: 0xff0000 });
-                    arg.addText("Hello", 10, 20, { color: 0x00ff00 });
+                ps88.gui((ctx) => {
+                    if (ctx.w !== 640) { throw new Error(`w: ${ctx.w}`); }
+                    if (ctx.h !== 480) { throw new Error(`h: ${ctx.h}`); }
+                    if (ctx.mouse.x !== 100) { throw new Error(`mouse.x: ${ctx.mouse.x}`); }
+                    if (ctx.mouse.y !== 200) { throw new Error(`mouse.y: ${ctx.mouse.y}`); }
+                    if (ctx.mouse.pressedL !== true) { throw new Error(`mouse.pressedL: ${ctx.mouse.pressedL}`); }
+                    if (ctx.mouse.pressedR !== false) { throw new Error(`mouse.pressedR: ${ctx.mouse.pressedR}`); }
+                    ctx.addPolygon([[1, 2], [3, 4]], { fill: 0xff0000, stroke: 0x00ff00, strokeWidth: 2, strokeClosed: true });
+                    ctx.addText("Hello", 10, 20, { size: 30, color: 0x0000ff });
                 });
             "#,
         )
@@ -283,18 +304,40 @@ mod tests {
                 Shape::Polygon {
                     path: vec![(1.0, 2.0), (3.0, 4.0)],
                     fill: Some(0xff0000),
-                    stroke: None,
-                    stroke_width: None,
-                    stroke_closed: None,
+                    stroke: Some(0x00ff00),
+                    stroke_width: Some(2.0),
+                    stroke_closed: Some(true),
                 },
                 Shape::Text {
                     text: "Hello".to_string(),
                     x: 10.0,
                     y: 20.0,
-                    size: None,
-                    color: Some(0x00ff00),
+                    size: Some(30.0),
+                    color: Some(0x0000ff),
                 },
             ]
         );
+
+        // エラーが起きたら状態がリセット
+        // 3 回目の呼び出しでエラーが起きる
+        rt.compile(
+            r#"
+                "use strict";
+                let count = 0;
+                ps88.gui((ctx) => {
+                    for (let i = count += 1; i > 0; i--) ctx.addPolygon([]);
+                    if (count >= 3) throw new Error("test error");
+                });
+            "#,
+        )
+        .unwrap();
+        let args = GuiArgs::default();
+        let shapes = rt.gui(args.clone()).unwrap();
+        assert_eq!(shapes.len(), 1);
+        let shapes = rt.gui(args.clone()).unwrap();
+        assert_eq!(shapes.len(), 2);
+        rt.gui(args.clone()).unwrap_err(); // エラー
+        let shapes = rt.gui(args.clone()).unwrap(); // 特に何も起きない (関数が登録されていない状態)
+        assert_eq!(shapes.len(), 0);
     }
 }

@@ -88,13 +88,10 @@ pub(super) fn audio_to_backing_store<'a, 'b>(
                 "failed to get backing store data pointer".to_string(),
             ));
         }
-        let Some(float32array) =
-            v8::Float32Array::new(scope, array_buffer, offset * bytes_per_sample, ch.len())
-        else {
-            return Err(core::JsRuntimeError::UnexpectedError(
-                "failed to create Float32Array".to_string(),
-            ));
-        };
+        let float32array =
+            v8::Float32Array::new(scope, array_buffer, offset * bytes_per_sample, ch.len()).ok_or(
+                core::JsRuntimeError::UnexpectedError("failed to create Float32Array".to_string()),
+            )?;
         float32arrays.push(float32array);
         offset += ch.len();
     }
