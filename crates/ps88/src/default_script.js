@@ -59,8 +59,8 @@ const show = (mono, x, y, w, h, scale) => {
 
 const show2 = (ctx, mono, x, y, w, h, scale) => {
   const shape = show(mono, x, y, w, h, scale);
-  ctx.addPolygon(shape, {stroke: 0xFFFFFF});
-  rect(ctx, x, y, w, h, undefined, 0xFFFFFF);
+  ctx.addPolygon(shape, {stroke: 0xFFFFFFFF});
+  rect(ctx, x, y, w, h, undefined, 0xFFFFFFFF);
 };
 
 ps88.audio((ctx) => {
@@ -73,7 +73,7 @@ ps88.audio((ctx) => {
 });
 
 ps88.gui((ctx) => {
-  rect(ctx, 0, 0, ctx.w, ctx.h, 0xAA4488);
+  rect(ctx, 0, 0, ctx.w, ctx.h, 0xAA4488FF);
 
   buffer.get().map((buf, i) => {
     show2(ctx, buf, 180, 120 + 120 * i, 360, 120, 5);
@@ -81,7 +81,7 @@ ps88.gui((ctx) => {
 
   ctx.addText("Hello, World!", ctx.mouse.x, ctx.mouse.y, {
     size: 16,
-    color: ctx.mouse.pressedL ? 0xFF44AA : 0xFFFFFF,
+    color: ctx.mouse.pressedL ? 0xFF44AAFF : 0xFFFFFFFF,
   });
 });
 
