@@ -1,6 +1,6 @@
 use super::super::core;
+use super::gui_api::*;
 use super::runtime::*;
-use super::shape_api::*;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +18,6 @@ impl RuntimeActor {
         let args = Arc::new(Mutex::new(RuntimeActorArgs {
             audio: Vec::new(),
             midi: Vec::new(),
-            shapes: Shapes::new(),
         }));
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
@@ -52,8 +51,7 @@ impl RuntimeActor {
                             .unwrap();
                     }
                     RuntimeActorMessage::Gui { args, result } => {
-                        let RuntimeActorArgs { shapes, .. } = &mut *args_clone.lock().unwrap();
-                        result.send(runtime.gui(args, shapes)).unwrap();
+                        result.send(runtime.gui(args)).unwrap();
                     }
                 }
             }
@@ -135,8 +133,13 @@ impl RuntimeActor {
 
         Ok(())
     }
-    pub fn gui(&self) -> core::Result<()> {
-        todo!()
+    pub fn gui(&mut self, args: GuiArgs) -> core::Result<Vec<Shape>> {
+        let (tx, rx) = channel();
+        let sender = &self.thread.as_ref().unwrap().1;
+        sender
+            .send(RuntimeActorMessage::Gui { args, result: tx })
+            .unwrap();
+        rx.recv().unwrap()
     }
 }
 impl Drop for RuntimeActor {
@@ -150,7 +153,6 @@ impl Drop for RuntimeActor {
 struct RuntimeActorArgs {
     audio: Vec<Vec<f32>>,
     midi: Vec<[u8; 7]>,
-    shapes: Shapes,
 }
 
 enum RuntimeActorMessage {
@@ -169,7 +171,7 @@ enum RuntimeActorMessage {
     },
     Gui {
         args: GuiArgs,
-        result: Sender<core::Result<()>>,
+        result: Sender<core::Result<Vec<Shape>>>,
     },
 }
 
@@ -217,6 +219,50 @@ mod tests {
         assert_eq!(
             midi,
             vec![[0, 0, 0, 0, 0x80, 69, 20], [0, 0, 0, 0, 0x80, 57, 30]]
+        );
+    }
+
+    #[test]
+    fn test_gui() {
+        let mut rt = Runtime::new(|msg| println!("{}", msg)).unwrap();
+        rt.compile(
+            r#"ps88.gui((arg) => {
+    if (arg.w !== 640) { throw new Error("w must be 640"); }
+    if (arg.h !== 480) { throw new Error("h must be 480"); }
+    if (arg.mouse.x !== 100) { throw new Error("mouse.x must be 100"); }
+    if (arg.mouse.y !== 200) { throw new Error("mouse.y must be 200"); }
+    if (arg.mouse.pressedL !== true) { throw new Error("mouse.pressedL must be true"); }
+    if (arg.mouse.pressedR !== false) { throw new Error("mouse.pressedR must be false"); }
+    arg.addPolygon([[1, 2], [3, 4]], { fill: 0xff0000 });
+    /*
+      addPolygon: (path: [number, number][], options?: {
+        fill?: number,
+        stroke?: number,
+        strokeWidth?: number,
+        strokeClosed?: boolean,
+      }) => void,
+    */
+});"#,
+        )
+        .unwrap();
+        let args = GuiArgs {
+            w: 640.0,
+            h: 480.0,
+            mouse_x: 100.0,
+            mouse_y: 200.0,
+            pressed_l: true,
+            pressed_r: false,
+        };
+        let shapes = rt.gui(args).unwrap();
+        assert_eq!(
+            shapes,
+            vec![Shape::Polygon {
+                path: vec![(1.0, 2.0), (3.0, 4.0)],
+                fill: Some(0xff0000),
+                stroke: None,
+                stroke_width: None,
+                stroke_closed: None,
+            }]
         );
     }
 }

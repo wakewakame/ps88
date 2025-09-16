@@ -98,7 +98,7 @@ pub struct CallbackInfo<'a, 'b> {
     pub rv: v8::ReturnValue<'a>,
 }
 
-pub(crate) trait ApiTrait<'a>: 'a {
+pub(super) trait ApiTrait<'a>: 'a {
     // v8 のグローバル変数に API を登録
     fn register(&self, scope: &mut v8::HandleScope, context: v8::Local<v8::Context>) -> Result<()>;
 

@@ -207,9 +207,7 @@ mod tests {
             let mut result = 0f64;
             for i in 0..info.args.length() {
                 let Ok(arg) = info.args.get(i).try_cast::<v8::Number>() else {
-                    let msg = v8::String::empty(info.scope);
-                    let err = v8::Exception::type_error(info.scope, msg);
-                    info.scope.throw_exception(err);
+                    v8throw_type_error(info.scope, "Argument must be a number");
                     return;
                 };
                 result += arg.value();
@@ -225,10 +223,7 @@ mod tests {
         impl<'a> TestCounter<'a> {
             fn add(&mut self, mut info: CallbackInfo) {
                 let Ok(arg0) = info.args.get(0).try_cast::<v8::Number>() else {
-                    let msg = v8::String::empty(info.scope);
-                    let err = v8::Exception::type_error(info.scope, msg);
-                    info.scope.throw_exception(err);
-                    return;
+                    return v8throw_type_error(info.scope, "Argument must be a number");
                 };
                 self.count += arg0.value();
                 info.rv.set(v8::Number::new(info.scope, self.count).into());

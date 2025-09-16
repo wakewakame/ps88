@@ -1,45 +1,45 @@
 use super::super::core;
 use deno_core::{serde_v8, v8};
 
-pub(crate) struct Dict<'a, 'b> {
+pub(super) struct Dict<'a, 'b> {
     scope: &'a mut v8::HandleScope<'b>,
     obj: v8::Local<'b, v8::Object>,
 }
 impl<'a, 'b> Dict<'a, 'b> {
-    pub(crate) fn new(scope: &'a mut v8::HandleScope<'b>) -> Self {
+    pub(super) fn new(scope: &'a mut v8::HandleScope<'b>) -> Self {
         let obj = v8::Object::new(scope);
         Self { scope, obj }
     }
-    pub(crate) fn add(self, key: &str, value: v8::Local<'b, v8::Value>) -> core::Result<Self> {
+    pub(super) fn add(self, key: &str, value: v8::Local<'b, v8::Value>) -> core::Result<Self> {
         let key_js = core::v8str(self.scope, key)?;
         self.obj.set(self.scope, key_js.into(), value);
         Ok(self)
     }
-    pub(crate) fn add_number(self, key: &str, value: f64) -> core::Result<Self> {
+    pub(super) fn add_number(self, key: &str, value: f64) -> core::Result<Self> {
         let key_js = core::v8str(self.scope, key)?;
         let value_js = v8::Number::new(self.scope, value);
         self.obj.set(self.scope, key_js.into(), value_js.into());
         Ok(self)
     }
-    pub(crate) fn add_bool(self, key: &str, value: bool) -> core::Result<Self> {
+    pub(super) fn add_bool(self, key: &str, value: bool) -> core::Result<Self> {
         let key_js = core::v8str(self.scope, key)?;
         let value_js = v8::Boolean::new(self.scope, value);
         self.obj.set(self.scope, key_js.into(), value_js.into());
         Ok(self)
     }
-    pub(crate) fn value(self) -> v8::Local<'b, v8::Value> {
+    pub(super) fn value(self) -> v8::Local<'b, v8::Value> {
         self.obj.into()
     }
 }
 
-pub(crate) fn midi_to_arr<'a, 'b>(
+pub(super) fn midi_to_arr<'a, 'b>(
     scope: &'a mut v8::HandleScope<'b>,
     midi: &'a mut Vec<[u8; 7]>,
 ) -> core::Result<v8::Local<'b, v8::Value>> {
     core::wrap_err(serde_v8::to_v8(scope, midi.clone()))
 }
 
-pub(crate) fn arr_to_midi(
+pub(super) fn arr_to_midi(
     scope: &mut v8::HandleScope,
     arr: v8::Local<v8::Value>,
 ) -> core::Result<Vec<[u8; 7]>> {
@@ -52,7 +52,7 @@ pub(crate) fn arr_to_midi(
     }
 }
 
-pub(crate) fn audio_to_backing_store<'a, 'b>(
+pub(super) fn audio_to_backing_store<'a, 'b>(
     scope: &'a mut v8::HandleScope<'b>,
     src: &'a mut [&mut [f32]], // src[ch][sample]
     dst: &'a mut Option<v8::SharedRef<v8::BackingStore>>,
@@ -113,7 +113,7 @@ pub(crate) fn audio_to_backing_store<'a, 'b>(
     Ok(audio_js.into())
 }
 
-pub(crate) fn backing_store_to_audio(
+pub(super) fn backing_store_to_audio(
     src: &Option<v8::SharedRef<v8::BackingStore>>,
     dst: &mut [&mut [f32]], // audio[ch][sample]
 ) {
