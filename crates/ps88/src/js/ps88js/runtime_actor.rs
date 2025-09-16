@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 // Runtime は Sync, Send を持たないため、そのままでは複数スレッドから使うことはできない。
 // これを解決するため、Runtime を専用スレッドで動かしチャンネル経由でメソッド呼び出しを行うようにする。
 pub struct RuntimeActor {
-    thread: Option<(std::thread::JoinHandle<()>, Sender<RuntimeActorMessage>)>,
+    handle: std::thread::JoinHandle<()>,
+    sender: Sender<RuntimeActorMessage>,
 
     // メソッドの引数は通常チャンネルで渡すが、サイズの大きいデータや参照型などは args 経由でやり取りする
     args: Arc<Mutex<RuntimeActorArgs>>,
@@ -21,7 +22,7 @@ impl RuntimeActor {
         }));
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
-        let join_handle = std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             let mut runtime = Runtime::new().unwrap();
             for msg in rx {
                 match msg {
@@ -57,15 +58,15 @@ impl RuntimeActor {
             }
         });
         Ok(Self {
-            thread: Some((join_handle, tx)),
+            handle,
+            sender: tx,
             args,
         })
     }
     // ログ関数を追加する。ログ関数が false を返すとログの受信が終了する。
     pub fn add_logger(&self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
         let (tx, rx) = channel();
-        let sender = &self.thread.as_ref().unwrap().1;
-        sender
+        self.sender
             .send(RuntimeActorMessage::AddLogger {
                 logger: logger,
                 result: tx,
@@ -75,8 +76,7 @@ impl RuntimeActor {
     }
     pub fn compile(&self, code: &str) -> core::Result<()> {
         let (tx, rx) = channel();
-        let sender = &self.thread.as_ref().unwrap().1;
-        sender
+        self.sender
             .send(RuntimeActorMessage::Compile {
                 code: code.to_string(),
                 result: tx,
@@ -115,8 +115,7 @@ impl RuntimeActor {
 
         // メッセージを送信して処理を待つ
         let (tx, rx) = channel();
-        let sender = &self.thread.as_ref().unwrap().1;
-        sender
+        self.sender
             .send(RuntimeActorMessage::Audio {
                 sample_rate,
                 pos_samples,
@@ -139,8 +138,7 @@ impl RuntimeActor {
     }
     pub fn gui(&self, args: GuiArgs) -> core::Result<Vec<Shape>> {
         let (tx, rx) = channel();
-        let sender = &self.thread.as_ref().unwrap().1;
-        sender
+        self.sender
             .send(RuntimeActorMessage::Gui { args, result: tx })
             .unwrap();
         rx.recv().unwrap()
@@ -148,9 +146,10 @@ impl RuntimeActor {
 }
 impl Drop for RuntimeActor {
     fn drop(&mut self) {
-        let (join_handle, sender) = self.thread.take().unwrap();
+        let sender = std::mem::replace(&mut self.sender, std::sync::mpsc::channel().0);
         drop(sender);
-        join_handle.join().unwrap();
+        let handle = std::mem::replace(&mut self.handle, std::thread::spawn(move || {}));
+        handle.join().unwrap();
     }
 }
 
@@ -187,7 +186,7 @@ mod tests {
     #[test]
     fn test_add_logger() {
         use std::sync::mpsc::*;
-        let mut rt = RuntimeActor::new().unwrap();
+        let rt = RuntimeActor::new().unwrap();
 
         // ログが受信できる
         let (tx1, rx1) = channel();
