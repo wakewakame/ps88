@@ -211,7 +211,7 @@ mod tests {
                 };
                 result += arg.value();
             }
-            info._rv.set(v8::Number::new(info.scope, result).into());
+            info.rv.set(v8::Number::new(info.scope, result).into());
         });
 
         // テスト用のカウント API を定義
@@ -225,7 +225,7 @@ mod tests {
                     return v8throw_type_error(info.scope, "Argument must be a number");
                 };
                 self.count += arg0.value();
-                info._rv.set(v8::Number::new(info.scope, self.count).into());
+                info.rv.set(v8::Number::new(info.scope, self.count).into());
             }
         }
         impl<'a> This<'a> for TestCounter<'a> {

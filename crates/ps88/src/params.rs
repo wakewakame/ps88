@@ -10,6 +10,10 @@ pub struct PS88Params {
     #[persist = "code"]
     pub code: Arc<Mutex<String>>,
 
+    // ユーザーが保存できる任意のバイナリデータ
+    #[persist = "userdata"]
+    pub userdata: Arc<Mutex<Vec<u8>>>,
+
     // パラメータの数は固定で 4 つだけ
     // TODO: JavaScript から参照・操作できるようにする
     #[id = "param1"]
@@ -26,6 +30,7 @@ impl Default for PS88Params {
     fn default() -> Self {
         Self {
             code: Arc::new(Mutex::new(String::from(DEFAULT_SCRIPT))),
+            userdata: Arc::new(Mutex::new(Vec::new())),
             param1: FloatParam::new("Param1", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             param2: FloatParam::new("Param2", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
             param3: FloatParam::new("Param3", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 }),

@@ -6,6 +6,7 @@ use super::status::*;
 use deno_core::{serde_v8, v8};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 pub struct Runtime<'a> {
     status: Rc<RefCell<Status>>,
@@ -15,10 +16,11 @@ pub struct Runtime<'a> {
 }
 
 impl Runtime<'_> {
-    pub fn new() -> core::Result<Self> {
+    pub fn new(userdata: Arc<Mutex<Vec<u8>>>) -> core::Result<Self> {
         let status = Rc::new(RefCell::new(Status {
             audio_callback: None,
             gui_callback: None,
+            userdata,
         }));
         let api = core::Api::new(
             "ps88",
@@ -179,11 +181,12 @@ pub struct GuiArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::{channel, TryRecvError};
 
     #[test]
     fn test_add_logger() {
-        use std::sync::mpsc::*;
-        let mut rt = Runtime::new().unwrap();
+        let userdata = Arc::new(Mutex::new(vec![]));
+        let mut rt = Runtime::new(userdata).unwrap();
 
         // ログが受信できる
         let (tx1, rx1) = channel();
@@ -208,7 +211,8 @@ mod tests {
 
     #[test]
     fn test_audio() {
-        let mut rt = Runtime::new().unwrap();
+        let userdata = Arc::new(Mutex::new(vec![]));
+        let mut rt = Runtime::new(userdata).unwrap();
 
         // 入出力の確認
         rt.compile(
@@ -313,7 +317,8 @@ mod tests {
 
     #[test]
     fn test_gui() {
-        let mut rt = Runtime::new().unwrap();
+        let userdata = Arc::new(Mutex::new(vec![]));
+        let mut rt = Runtime::new(userdata).unwrap();
 
         // 入出力の確認
         rt.compile(
@@ -382,5 +387,33 @@ mod tests {
         rt.gui(args.clone()).unwrap_err(); // エラー
         let shapes = rt.gui(args.clone()).unwrap(); // 特に何も起きない (関数が登録されていない状態)
         assert_eq!(shapes.len(), 0);
+    }
+
+    #[test]
+    fn test_save_load() {
+        let userdata = Arc::new(Mutex::new(vec![]));
+        let mut rt = Runtime::new(userdata.clone()).unwrap();
+        let (tx, rx) = channel();
+        rt.add_logger(Box::new(move |msg: String| {
+            tx.send(msg).unwrap();
+            true
+        }));
+
+        // 任意のデータを保存できる
+        rt.compile("ps88.save(new Uint8Array([1, 2, 3]));").unwrap();
+        assert_eq!(&*userdata.lock().unwrap(), &[1, 2, 3]);
+
+        // 保存したデータを読み込める
+        rt.compile("console.log(JSON.stringify([...ps88.load()]));")
+            .unwrap();
+        assert_eq!(rx.recv().unwrap(), "[1,2,3]");
+
+        // データの上書きもできる
+        rt.compile("ps88.save(new Uint8Array([4, 5, 6, 7, 8]));")
+            .unwrap();
+        assert_eq!(&*userdata.lock().unwrap(), &[4, 5, 6, 7, 8]);
+        rt.compile("console.log(JSON.stringify([...ps88.load()]));")
+            .unwrap();
+        assert_eq!(rx.recv().unwrap(), "[4,5,6,7,8]");
     }
 }

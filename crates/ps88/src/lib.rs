@@ -19,10 +19,11 @@ pub struct PS88 {
 
 impl Default for PS88 {
     fn default() -> Self {
+        let params = params::PS88Params::default();
         let runtime: Arc<js::ps88js::RuntimeActor> =
-            Arc::new(js::ps88js::RuntimeActor::new().unwrap());
+            Arc::new(js::ps88js::RuntimeActor::new(params.userdata.clone()).unwrap());
         Self {
-            params: Arc::new(params::PS88Params::default()),
+            params: Arc::new(params),
             runtime,
             pos_samples: 0,
         }

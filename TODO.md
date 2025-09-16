@@ -1,7 +1,6 @@
 TODO
 
 - editor.rs が巨大なので読みやすくなるようファイル分割する
-- save() / load() api の実装
 - ps88web の API 体系を ps88 に合わせる
 - UI にこだわる
 - TODO コメントの解決

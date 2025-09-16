@@ -1,9 +1,7 @@
 console.log("hello");
-//return;
-console.log("world");
 
-//save({"testtest": 100});
-//console.log(savedata);
+console.log([...ps88.load()]);
+ps88.save(new Uint8Array([1, 2, 3, 42]));
 
 const toMono = (audio) => {
   return audio.reduce((ch1, ch2, ch) => (
@@ -63,13 +61,15 @@ const show2 = (ctx, mono, x, y, w, h, scale) => {
   rect(ctx, x, y, w, h, undefined, 0xFFFFFFFF);
 };
 
+let posSamples = 0;
 ps88.audio((ctx) => {
   buffer.add(ctx.audio);
   const mono = toMono(ctx.audio);
   map(mono, (_, i) => {
-    return Math.sin(440 * 2 * Math.PI * (ctx.posSamples + i) / ctx.sampleRate) * 0.1;
+    return Math.sin(440 * 2 * Math.PI * (posSamples + i) / ctx.sampleRate) * 0.1;
   });
   fromMono(ctx.audio, mono);
+  posSamples += ctx.audio[0]?.length ?? 0;
 });
 
 ps88.gui((ctx) => {

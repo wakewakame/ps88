@@ -70,11 +70,7 @@ impl<'a, T: This<'a>> Api<'a, T> {
             let scope = &mut unsafe { v8::CallbackScope::new(info) };
             let args = v8::FunctionCallbackArguments::from_function_callback_info(info);
             let rv = v8::ReturnValue::from_function_callback_info(info);
-            let info = CallbackInfo {
-                scope,
-                args,
-                _rv: rv,
-            };
+            let info = CallbackInfo { scope, args, rv };
 
             // `info.args.data()` から `&T` を取り出す
             // 安全性: `info.args.data()` に &RefCell<T> が格納されていることは呼び出し側が保証する
@@ -99,7 +95,7 @@ impl<'a, T: This<'a>> Api<'a, T> {
 pub struct CallbackInfo<'a, 'b> {
     pub scope: &'a mut v8::HandleScope<'b>,
     pub args: v8::FunctionCallbackArguments<'a>,
-    pub _rv: v8::ReturnValue<'a>,
+    pub rv: v8::ReturnValue<'a>,
 }
 
 pub(super) trait ApiTrait<'a>: 'a {
