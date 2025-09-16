@@ -25,9 +25,6 @@ impl RuntimeActor {
             let mut runtime = Runtime::new(logger).unwrap();
             for msg in rx {
                 match msg {
-                    RuntimeActorMessage::Reset { result } => {
-                        result.send(runtime.reset()).unwrap();
-                    }
                     RuntimeActorMessage::Compile { code, result } => {
                         result.send(runtime.compile(&code)).unwrap();
                     }
@@ -60,14 +57,6 @@ impl RuntimeActor {
             thread: Some((join_handle, tx)),
             args,
         })
-    }
-    pub fn reset(&self) -> core::Result<()> {
-        let (tx, rx) = channel();
-        let sender = &self.thread.as_ref().unwrap().1;
-        sender
-            .send(RuntimeActorMessage::Reset { result: tx })
-            .unwrap();
-        rx.recv().unwrap()
     }
     pub fn compile(&self, code: &str) -> core::Result<()> {
         let (tx, rx) = channel();
@@ -156,9 +145,6 @@ struct RuntimeActorArgs {
 }
 
 enum RuntimeActorMessage {
-    Reset {
-        result: Sender<core::Result<()>>,
-    },
     Compile {
         code: String,
         result: Sender<core::Result<()>>,

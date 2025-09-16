@@ -3,7 +3,7 @@ use super::convert::*;
 use super::global_api::*;
 use super::gui_api::*;
 use super::status::*;
-use deno_core::{serde, serde_v8, v8};
+use deno_core::{serde_v8, v8};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -38,9 +38,6 @@ impl<'a> Runtime<'a> {
             runtime,
             audio_buf: None,
         })
-    }
-    pub fn reset(&mut self) -> core::Result<()> {
-        self.runtime.reset()
     }
     pub fn compile(&mut self, code: &str) -> core::Result<()> {
         self.reset()?;
@@ -146,6 +143,9 @@ impl<'a> Runtime<'a> {
             self.reset()?;
         }
         result
+    }
+    fn reset(&mut self) -> core::Result<()> {
+        self.runtime.reset()
     }
 }
 
