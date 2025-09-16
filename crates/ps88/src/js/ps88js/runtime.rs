@@ -52,7 +52,7 @@ impl<'a> Runtime<'a> {
         audio: &mut [&mut [f32]], // audio[ch][sample]
         midi: &mut Vec<[u8; 7]>,
         sample_rate: f64,
-        current_frame: u64,
+        pos_samples: u64,
         bpm: f64,
     ) -> core::Result<()> {
         let result = || -> core::Result<()> {
@@ -74,7 +74,7 @@ impl<'a> Runtime<'a> {
                 .add("audio", audio_js)?
                 .add("midi", midi_js)?
                 .add_number("sampleRate", sample_rate)?
-                .add_number("currentFrame", current_frame as f64)?
+                .add_number("posSamples", pos_samples as f64)?
                 .add_number("bpm", bpm)?
                 .value();
 
@@ -173,7 +173,7 @@ mod tests {
                 "use strict";
                 ps88.audio((ctx) => {
                     if (ctx.sampleRate !== 48000) { throw new Error(`sampleRate: ${ctx.sampleRate}`); }
-                    if (ctx.currentFrame !== 1024) { throw new Error(`currentFrame: ${ctx.currentFrame}`); }
+                    if (ctx.posSamples !== 1024) { throw new Error(`posSamples: ${ctx.posSamples}`); }
                     if (ctx.bpm !== 120) { throw new Error(`bpm: ${ctx.bpm}`); }
                     let audio = JSON.stringify(ctx.audio.map(ch => [...ch]));
                     if (audio !== "[[1,2,3],[4,5,6]]") { throw new Error(`audio: ${audio}`); }

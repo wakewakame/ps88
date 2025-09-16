@@ -33,7 +33,7 @@ impl RuntimeActor {
                     }
                     RuntimeActorMessage::Audio {
                         sample_rate,
-                        current_frame,
+                        pos_samples,
                         bpm,
                         result,
                     } => {
@@ -45,7 +45,7 @@ impl RuntimeActor {
                                 audio.as_mut_slice(),
                                 midi,
                                 sample_rate,
-                                current_frame,
+                                pos_samples,
                                 bpm,
                             ))
                             .unwrap();
@@ -85,7 +85,7 @@ impl RuntimeActor {
         audio: &mut [&mut [f32]],
         midi: &mut Vec<[u8; 7]>,
         sample_rate: f64,
-        current_frame: u64,
+        pos_samples: u64,
         bpm: f64,
     ) -> core::Result<()> {
         // audio & midi から args にコピー
@@ -115,7 +115,7 @@ impl RuntimeActor {
         sender
             .send(RuntimeActorMessage::Audio {
                 sample_rate,
-                current_frame,
+                pos_samples,
                 bpm,
                 result: tx,
             })
@@ -165,7 +165,7 @@ enum RuntimeActorMessage {
     },
     Audio {
         sample_rate: f64,
-        current_frame: u64,
+        pos_samples: u64,
         bpm: f64,
         result: Sender<core::Result<()>>,
     },
@@ -189,7 +189,7 @@ mod tests {
                 "use strict";
                 ps88.audio((ctx) => {
                     if (ctx.sampleRate !== 48000) { throw new Error(`sampleRate: ${ctx.sampleRate}`); }
-                    if (ctx.currentFrame !== 1024) { throw new Error(`currentFrame: ${ctx.currentFrame}`); }
+                    if (ctx.posSamples !== 1024) { throw new Error(`posSamples: ${ctx.posSamples}`); }
                     if (ctx.bpm !== 120) { throw new Error(`bpm: ${ctx.bpm}`); }
                     let audio = JSON.stringify(ctx.audio.map(ch => [...ch]));
                     if (audio !== "[[1,2,3],[4,5,6]]") { throw new Error(`audio: ${audio}`); }

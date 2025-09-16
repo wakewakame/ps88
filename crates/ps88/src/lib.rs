@@ -1,4 +1,3 @@
-//mod api;
 mod editor;
 mod file_watcher;
 mod js;
@@ -14,10 +13,7 @@ pub struct PS88 {
     // JavaScript のランタイム
     runtime: Arc<js::ps88js::RuntimeActor>,
 
-    // API object
-    //api: Arc<Mutex<api::Api>>,
-    sample_rate: f32,
-    time: u64,
+    pos_samples: i64,
 }
 
 impl Default for PS88 {
@@ -28,10 +24,8 @@ impl Default for PS88 {
             Arc::new(js::ps88js::RuntimeActor::new(logger).unwrap());
         Self {
             params: Arc::new(params::PS88Params::default()),
-            //api: Arc::new(Mutex::new(api::Api::new())),
             runtime,
-            sample_rate: 1.0,
-            time: 0,
+            pos_samples: 0,
         }
     }
 }
@@ -81,7 +75,7 @@ impl Plugin for PS88 {
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
-        buffer_config: &BufferConfig,
+        _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         // デフォルトのスクリプトをコンパイル
@@ -93,12 +87,12 @@ impl Plugin for PS88 {
                 log::error!("{}", err);
             }
         }
-        self.sample_rate = buffer_config.sample_rate;
+        self.pos_samples = 0;
         true
     }
 
     fn reset(&mut self) {
-        self.time = 0;
+        self.pos_samples = 0;
     }
 
     fn process(
@@ -146,19 +140,17 @@ impl Plugin for PS88 {
 
         // スクリプトを実行
         {
-            if let Err(e) = self
-                .runtime
-                // TODO: current_frame, bpm を渡す
-                .audio(
-                    buffer.as_slice(),
-                    &mut midi,
-                    self.sample_rate as f64,
-                    0,
-                    0f64,
-                )
-            {
+            let transport = context.transport();
+            if let Err(e) = self.runtime.audio(
+                buffer.as_slice(),
+                &mut midi,
+                transport.sample_rate as f64,
+                transport.pos_samples().unwrap_or(self.pos_samples) as u64,
+                transport.tempo.unwrap_or(0.0),
+            ) {
                 log::error!("{}", e);
             }
+            self.pos_samples += buffer.samples() as i64;
         }
 
         ProcessStatus::Normal
