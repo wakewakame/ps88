@@ -18,10 +18,8 @@ pub struct PS88 {
 
 impl Default for PS88 {
     fn default() -> Self {
-        // TODO: ロガーを後から設定できるようにする
-        let logger = |s: String| println!("{}", s);
         let runtime: Arc<js::ps88js::RuntimeActor> =
-            Arc::new(js::ps88js::RuntimeActor::new(logger).unwrap());
+            Arc::new(js::ps88js::RuntimeActor::new().unwrap());
         Self {
             params: Arc::new(params::PS88Params::default()),
             runtime,

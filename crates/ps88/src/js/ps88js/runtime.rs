@@ -11,10 +11,11 @@ pub struct Runtime<'a> {
     status: Rc<RefCell<Status>>,
     runtime: core::JsRuntime<'a>,
     audio_buf: Option<v8::SharedRef<v8::BackingStore>>,
+    logger: Rc<RefCell<Vec<Box<dyn Fn(String) -> bool>>>>,
 }
 
-impl<'a> Runtime<'a> {
-    pub fn new<F: Fn(String) + 'a>(logger: F) -> core::Result<Self> {
+impl Runtime<'_> {
+    pub fn new() -> core::Result<Self> {
         let status = Rc::new(RefCell::new(Status {
             audio_callback: None,
             gui_callback: None,
@@ -29,15 +30,31 @@ impl<'a> Runtime<'a> {
         .add("gui", Api::gui)
         .add("save", Api::save)
         .add("load", Api::load);
+        let logger = Rc::new(RefCell::new(Vec::<Box<dyn Fn(String) -> bool>>::new()));
+        let logger2 = logger.clone();
+        let logger_func = move |msg: String| {
+            logger2.replace(
+                logger2
+                    .replace(vec![])
+                    .into_iter()
+                    .filter(|logger| logger(msg.clone()))
+                    .collect(),
+            );
+        };
         let runtime = core::JsRuntimeBuilder::new()
             .add_api(api)
-            .add_logger(logger)
+            .add_logger(logger_func)
             .build()?;
         Ok(Self {
             status,
             runtime,
             audio_buf: None,
+            logger,
         })
+    }
+    // ログ関数を追加する。ログ関数が false を返すとログの受信が終了する。
+    pub fn add_logger(&mut self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
+        self.logger.borrow_mut().push(logger);
     }
     pub fn compile(&mut self, code: &str) -> core::Result<()> {
         self.reset()?;
@@ -164,8 +181,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_add_logger() {
+        use std::sync::mpsc::*;
+        let mut rt = Runtime::new().unwrap();
+
+        // ログが受信できる
+        let (tx1, rx1) = channel();
+        rt.add_logger(Box::new(move |msg: String| {
+            tx1.send(msg).unwrap();
+            false // 1 回だけ受信して終了
+        }));
+        let (tx2, rx2) = channel();
+        rt.add_logger(Box::new(move |msg: String| {
+            tx2.send(msg).unwrap();
+            true // 何回でも受信する
+        }));
+        rt.compile("console.log('1');").unwrap();
+        assert_eq!(rx1.try_recv().unwrap(), "1");
+        assert_eq!(rx2.try_recv().unwrap(), "1");
+        rt.compile("console.log('2');").unwrap();
+        assert!(matches!(rx1.try_recv(), Err(TryRecvError::Disconnected)));
+        assert_eq!(rx2.try_recv().unwrap(), "2");
+        rt.compile("console.log('3');").unwrap();
+        assert_eq!(rx2.try_recv().unwrap(), "3");
+    }
+
+    #[test]
     fn test_audio() {
-        let mut rt = Runtime::new(|_| {}).unwrap();
+        let mut rt = Runtime::new().unwrap();
 
         // 入出力の確認
         rt.compile(
@@ -270,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_gui() {
-        let mut rt = Runtime::new(|msg| println!("{}", msg)).unwrap();
+        let mut rt = Runtime::new().unwrap();
 
         // 入出力の確認
         rt.compile(

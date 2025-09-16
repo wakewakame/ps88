@@ -14,7 +14,7 @@ pub struct RuntimeActor {
     args: Arc<Mutex<RuntimeActorArgs>>,
 }
 impl RuntimeActor {
-    pub fn new<F: Fn(String) + Send + 'static>(logger: F) -> core::Result<Self> {
+    pub fn new() -> core::Result<Self> {
         let args = Arc::new(Mutex::new(RuntimeActorArgs {
             audio: Vec::new(),
             midi: Vec::new(),
@@ -22,9 +22,12 @@ impl RuntimeActor {
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
         let join_handle = std::thread::spawn(move || {
-            let mut runtime = Runtime::new(logger).unwrap();
+            let mut runtime = Runtime::new().unwrap();
             for msg in rx {
                 match msg {
+                    RuntimeActorMessage::AddLogger { logger, result } => {
+                        result.send(runtime.add_logger(logger)).unwrap();
+                    }
                     RuntimeActorMessage::Compile { code, result } => {
                         result.send(runtime.compile(&code)).unwrap();
                     }
@@ -57,6 +60,18 @@ impl RuntimeActor {
             thread: Some((join_handle, tx)),
             args,
         })
+    }
+    // ログ関数を追加する。ログ関数が false を返すとログの受信が終了する。
+    pub fn add_logger(&self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
+        let (tx, rx) = channel();
+        let sender = &self.thread.as_ref().unwrap().1;
+        sender
+            .send(RuntimeActorMessage::AddLogger {
+                logger: logger,
+                result: tx,
+            })
+            .unwrap();
+        rx.recv().unwrap()
     }
     pub fn compile(&self, code: &str) -> core::Result<()> {
         let (tx, rx) = channel();
@@ -145,6 +160,10 @@ struct RuntimeActorArgs {
 }
 
 enum RuntimeActorMessage {
+    AddLogger {
+        logger: Box<dyn Fn(String) -> bool + Sync + Send>,
+        result: Sender<()>,
+    },
     Compile {
         code: String,
         result: Sender<core::Result<()>>,
@@ -166,8 +185,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_add_logger() {
+        use std::sync::mpsc::*;
+        let mut rt = RuntimeActor::new().unwrap();
+
+        // ログが受信できる
+        let (tx1, rx1) = channel();
+        rt.add_logger(Box::new(move |msg: String| {
+            tx1.send(msg).unwrap();
+            false // 1 回だけ受信して終了
+        }));
+        let (tx2, rx2) = channel();
+        rt.add_logger(Box::new(move |msg: String| {
+            tx2.send(msg).unwrap();
+            true // 何回でも受信する
+        }));
+        rt.compile("console.log('1');").unwrap();
+        assert_eq!(rx1.try_recv().unwrap(), "1");
+        assert_eq!(rx2.try_recv().unwrap(), "1");
+        rt.compile("console.log('2');").unwrap();
+        assert!(matches!(rx1.try_recv(), Err(TryRecvError::Disconnected)));
+        assert_eq!(rx2.try_recv().unwrap(), "2");
+        rt.compile("console.log('3');").unwrap();
+        assert_eq!(rx2.try_recv().unwrap(), "3");
+    }
+
+    #[test]
     fn test_audio() {
-        let rt = RuntimeActor::new(|_| {}).unwrap();
+        let rt = RuntimeActor::new().unwrap();
 
         // 入出力の確認
         rt.compile(
@@ -201,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_gui() {
-        let rt = RuntimeActor::new(|msg| println!("{}", msg)).unwrap();
+        let rt = RuntimeActor::new().unwrap();
 
         // 入出力の確認
         rt.compile(

@@ -44,16 +44,13 @@ pub fn editor(
 ) -> Option<Box<dyn Editor>> {
     let user_state = UserState::new();
     let weak_log = Arc::downgrade(&user_state.log);
-    // TODO: 以下のコメントアウトを外す
-    //runtime
-    //    .add_logger(Box::new(move |log| {
-    //        let Some(logger) = weak_log.upgrade() else {
-    //            return false;
-    //        };
-    //        logger.lock().unwrap().push((log, LogType::Info));
-    //        return true;
-    //    }))
-    //    .unwrap();
+    runtime.add_logger(Box::new(move |log| {
+        let Some(logger) = weak_log.upgrade() else {
+            return false;
+        };
+        logger.lock().unwrap().push((log, LogType::Info));
+        return true;
+    }));
     create_egui_editor(
         params.editor_state.clone(),
         user_state,
