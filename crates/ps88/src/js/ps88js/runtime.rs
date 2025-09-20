@@ -58,6 +58,9 @@ impl Runtime<'_> {
     pub fn add_logger(&mut self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
         self.logger.borrow_mut().push(logger);
     }
+    pub fn reset(&mut self) -> core::Result<()> {
+        self.runtime.reset()
+    }
     pub fn compile(&mut self, code: &str) -> core::Result<()> {
         self.reset()?;
         self.runtime.run(code)?;
@@ -162,9 +165,6 @@ impl Runtime<'_> {
             self.reset()?;
         }
         result
-    }
-    fn reset(&mut self) -> core::Result<()> {
-        self.runtime.reset()
     }
 }
 

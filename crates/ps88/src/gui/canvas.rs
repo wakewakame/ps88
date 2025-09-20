@@ -68,24 +68,29 @@ impl egui::Widget for CanvasWidget {
                     if let Some(fill) = fill {
                         let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
                             VertexBuffers::new();
-                        fill_tessellator
-                            .tessellate_path(
-                                &path,
-                                &FillOptions::default(),
-                                &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-                                    egui::epaint::Vertex {
-                                        pos: egui::pos2(vertex.position().x, vertex.position().y),
-                                        uv: egui::epaint::WHITE_UV,
-                                        color: egui::Color32::from_rgba_unmultiplied(
-                                            (fill >> 24) as u8,
-                                            ((fill >> 16) & 0xff) as u8,
-                                            ((fill >> 8) & 0xff) as u8,
-                                            (fill & 0xff) as u8,
-                                        ),
-                                    }
-                                }),
-                            )
-                            .unwrap();
+                        let result = fill_tessellator.tessellate_path(
+                            &path,
+                            &FillOptions::default(),
+                            &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+                                egui::epaint::Vertex {
+                                    pos: egui::pos2(vertex.position().x, vertex.position().y),
+                                    uv: egui::epaint::WHITE_UV,
+                                    color: egui::Color32::from_rgba_unmultiplied(
+                                        (fill >> 24) as u8,
+                                        ((fill >> 16) & 0xff) as u8,
+                                        ((fill >> 8) & 0xff) as u8,
+                                        (fill & 0xff) as u8,
+                                    ),
+                                }
+                            }),
+                        );
+                        if let Err(err) = result {
+                            log::error!("failed to tessellate fill: {}", err);
+                            if let Err(err) = self.0.reset() {
+                                log::error!("failed to reset runtime: {}", err);
+                            }
+                            continue;
+                        }
                         let mesh = egui::Shape::Mesh(
                             egui::Mesh {
                                 indices: geometry.indices,
@@ -101,26 +106,31 @@ impl egui::Widget for CanvasWidget {
                     if let Some(stroke) = stroke {
                         let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
                             VertexBuffers::new();
-                        stroke_tessellator
-                            .tessellate_path(
-                                &path,
-                                &StrokeOptions::default()
-                                    .with_line_width(stroke_width.unwrap_or(1.0) as f32)
-                                    .with_line_join(LineJoin::Bevel),
-                                &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
-                                    egui::epaint::Vertex {
-                                        pos: egui::pos2(vertex.position().x, vertex.position().y),
-                                        uv: egui::epaint::WHITE_UV,
-                                        color: egui::Color32::from_rgba_unmultiplied(
-                                            (stroke >> 24) as u8,
-                                            ((stroke >> 16) & 0xff) as u8,
-                                            ((stroke >> 8) & 0xff) as u8,
-                                            (stroke & 0xff) as u8,
-                                        ),
-                                    }
-                                }),
-                            )
-                            .unwrap();
+                        let result = stroke_tessellator.tessellate_path(
+                            &path,
+                            &StrokeOptions::default()
+                                .with_line_width(stroke_width.unwrap_or(1.0) as f32)
+                                .with_line_join(LineJoin::Bevel),
+                            &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
+                                egui::epaint::Vertex {
+                                    pos: egui::pos2(vertex.position().x, vertex.position().y),
+                                    uv: egui::epaint::WHITE_UV,
+                                    color: egui::Color32::from_rgba_unmultiplied(
+                                        (stroke >> 24) as u8,
+                                        ((stroke >> 16) & 0xff) as u8,
+                                        ((stroke >> 8) & 0xff) as u8,
+                                        (stroke & 0xff) as u8,
+                                    ),
+                                }
+                            }),
+                        );
+                        if let Err(err) = result {
+                            log::error!("failed to tessellate fill: {}", err);
+                            if let Err(err) = self.0.reset() {
+                                log::error!("failed to reset runtime: {}", err);
+                            }
+                            continue;
+                        }
                         let mesh = egui::Shape::Mesh(
                             egui::Mesh {
                                 indices: geometry.indices,
