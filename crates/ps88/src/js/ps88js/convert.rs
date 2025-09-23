@@ -1,4 +1,5 @@
 use super::super::core;
+use super::status::*;
 use deno_core::{serde_v8, v8};
 
 pub(super) struct Dict<'a, 'b> {
@@ -32,20 +33,20 @@ impl<'a, 'b> Dict<'a, 'b> {
     }
 }
 
-pub(super) fn midi_to_arr<'a, 'b>(
+pub(super) fn midi_to_obj<'a, 'b>(
     scope: &'a mut v8::HandleScope<'b>,
-    midi: &'a mut Vec<[u8; 7]>,
+    midi: &'a mut Vec<NoteEvent>,
 ) -> core::Result<v8::Local<'b, v8::Value>> {
-    core::wrap_err(serde_v8::to_v8(scope, midi.clone()))
+    core::wrap_err(serde_v8::to_v8(scope, midi))
 }
 
-pub(super) fn arr_to_midi(
+pub(super) fn obj_to_midi(
     scope: &mut v8::HandleScope,
     arr: v8::Local<v8::Value>,
-) -> core::Result<Vec<[u8; 7]>> {
-    match serde_v8::from_v8::<Vec<[u8; 7]>>(scope, arr) {
+) -> core::Result<Vec<NoteEvent>> {
+    match serde_v8::from_v8::<Vec<NoteEvent>>(scope, arr) {
         Ok(midi) => Ok(midi),
-        Err(e) => Err(core::JsRuntimeError::UnexpectedError(format!(
+        Err(e) => Err(core::JsRuntimeError::RuntimeError(format!(
             "failed to convert midi from v8: {}",
             e
         ))),

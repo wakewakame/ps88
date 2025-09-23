@@ -33,12 +33,11 @@ pub(super) fn gen_api_add_polygon<'a, 'b>(
     ) {
         type Arg0 = Vec<(f64, f64)>;
         #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct Arg1 {
             fill: Option<Color>,
             stroke: Option<Color>,
-            #[serde(rename = "strokeWidth")]
             stroke_width: Option<f64>,
-            #[serde(rename = "strokeClosed")]
             stroke_closed: Option<bool>,
         }
         let path = match serde_v8::from_v8::<Arg0>(scope, args.get(0)) {

@@ -69,7 +69,7 @@ impl Runtime<'_> {
     pub fn audio(
         &mut self,
         audio: &mut [&mut [f32]], // audio[ch][sample]
-        midi: &mut Vec<[u8; 7]>,
+        midi: &mut Vec<NoteEvent>,
         sample_rate: f64,
         pos_samples: u64,
         bpm: f64,
@@ -84,9 +84,9 @@ impl Runtime<'_> {
                 v8::Local::new(scope, callback)
             };
 
-            // audio, midi, sampling_rate を v8 に変換
+            // audio, midi を v8 に変換
             let audio_js = audio_to_backing_store(scope, audio, &mut self.audio_buf)?;
-            let midi_js = midi_to_arr(scope, midi)?;
+            let midi_js = midi_to_obj(scope, midi)?;
 
             // 引数を用意
             let ctx = Dict::new(scope)
@@ -108,7 +108,7 @@ impl Runtime<'_> {
 
             // 結果を audio, midi に書き戻す
             backing_store_to_audio(&self.audio_buf, audio);
-            *midi = arr_to_midi(scope, midi_js)?;
+            *midi = obj_to_midi(scope, midi_js)?;
 
             Ok(())
         }();
@@ -222,26 +222,58 @@ mod tests {
                     if (ctx.sampleRate !== 48000) { throw new Error(`sampleRate: ${ctx.sampleRate}`); }
                     if (ctx.posSamples !== 1024) { throw new Error(`posSamples: ${ctx.posSamples}`); }
                     if (ctx.bpm !== 120) { throw new Error(`bpm: ${ctx.bpm}`); }
-                    let audio = JSON.stringify(ctx.audio.map(ch => [...ch]));
-                    if (audio !== "[[1,2,3],[4,5,6]]") { throw new Error(`audio: ${audio}`); }
-                    let midi = JSON.stringify(ctx.midi);
-                    if (midi !== "[[0,1,2,3,4,5,6],[7,8,9,10,11,12,13]]") { throw new Error(`midi: ${midi}`); }
+                    let audio_actual = JSON.stringify(ctx.audio.map(ch => [...ch]));
+                    let audio_expect = JSON.stringify([[1,2,3],[4,5,6]]);
+                    if (audio_actual !== audio_expect) { throw new Error(`audio: ${audio_actual}`); }
+                    let midi_actual = JSON.stringify(ctx.midi);
+                    let midi_expect = JSON.stringify([
+                        { type: "NoteOn", timing: 10, channel: 3, note: 60, velocity: 0.25 },
+                        { type: "NoteOff", timing: 20, voiceId: 123, channel: 4, note: 70, velocity: 0.5 },
+                    ]);
+                    if (midi_actual !== midi_expect) { throw new Error(`midi: ${midi_actual}`); }
                     for (let ch = 0; ch < ctx.audio.length; ch++) {
                         for (let i = 0; i < ctx.audio[ch].length; i++) {
                             ctx.audio[ch][i] *= 2.0;
                         }
                     }
-                    ctx.midi.splice(0, ctx.midi.length, [14, 15, 16, 17, 18, 19, 20]);
+                    ctx.midi.splice(
+                        0, ctx.midi.length,
+                        { type: "NoteOn", timing: 30, channel: 5, note: 80, velocity: 0.75 },
+                    );
                 });
             "#,
         )
         .unwrap();
         let mut audio = [&mut [1f32, 2., 3.][..], &mut [4., 5., 6.][..]];
-        let mut midi = vec![[0u8, 1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12, 13]];
+        let mut midi = vec![
+            NoteEvent::NoteOn {
+                timing: 10,
+                voice_id: None,
+                channel: 3,
+                note: 60,
+                velocity: 0.25,
+            },
+            NoteEvent::NoteOff {
+                timing: 20,
+                voice_id: Some(123),
+                channel: 4,
+                note: 70,
+                velocity: 0.5,
+            },
+        ];
         rt.audio(&mut audio[..], &mut midi, 48000.0, 1024, 120.0)
             .unwrap();
         assert_eq!(audio, [[2f32, 4., 6.], [8., 10., 12.]]);
-        assert_eq!(midi, vec![[14, 15, 16, 17, 18, 19, 20]]);
+        assert_eq!(
+            midi,
+            vec![NoteEvent::NoteOn {
+                timing: 30,
+                voice_id: None,
+                channel: 5,
+                note: 80,
+                velocity: 0.75,
+            }]
+        );
 
         // エラーが起きたら状態がリセット
         // 3 回目の呼び出しでエラーが起きる

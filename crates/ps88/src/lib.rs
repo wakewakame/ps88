@@ -59,6 +59,7 @@ impl Plugin for PS88 {
         },
     ];
     const MIDI_INPUT: MidiConfig = MidiConfig::MidiCCs;
+    const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
     type SysExMessage = ();
@@ -102,36 +103,38 @@ impl Plugin for PS88 {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         // イベントを取得
-        let mut midi = Vec::<[u8; 7]>::new();
+        let mut midi = Vec::<js::ps88js::NoteEvent>::new();
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn {
                     timing,
+                    voice_id,
                     channel,
                     note,
                     velocity,
-                    ..
                 } => {
-                    let mut e = [0u8; 7];
-                    e[0..4].copy_from_slice(&timing.to_be_bytes());
-                    e[4] = 0x90 | channel;
-                    e[5] = note;
-                    e[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
-                    midi.push(e);
+                    midi.push(js::ps88js::NoteEvent::NoteOn {
+                        timing,
+                        voice_id,
+                        channel,
+                        note,
+                        velocity,
+                    });
                 }
                 NoteEvent::NoteOff {
                     timing,
+                    voice_id,
                     channel,
                     note,
                     velocity,
-                    ..
                 } => {
-                    let mut e = [0u8; 7];
-                    e[0..4].copy_from_slice(&timing.to_be_bytes());
-                    e[4] = 0x80 | channel;
-                    e[5] = note;
-                    e[6] = (velocity * 127.0).round().clamp(1.0, 127.0) as u8;
-                    midi.push(e);
+                    midi.push(js::ps88js::NoteEvent::NoteOff {
+                        timing,
+                        voice_id,
+                        channel,
+                        note,
+                        velocity,
+                    });
                 }
                 // TODO: 他のイベントも処理する
                 _ => {}
@@ -151,6 +154,42 @@ impl Plugin for PS88 {
                 log::error!("{}", e);
             }
             self.pos_samples += buffer.samples() as i64;
+        }
+
+        // midi の内容を context に書き戻す
+        for event in midi {
+            match event {
+                js::ps88js::NoteEvent::NoteOn {
+                    timing,
+                    voice_id,
+                    channel,
+                    note,
+                    velocity,
+                } => {
+                    context.send_event(NoteEvent::NoteOn {
+                        timing,
+                        voice_id,
+                        channel,
+                        note,
+                        velocity,
+                    });
+                }
+                js::ps88js::NoteEvent::NoteOff {
+                    timing,
+                    voice_id,
+                    channel,
+                    note,
+                    velocity,
+                } => {
+                    context.send_event(NoteEvent::NoteOff {
+                        timing,
+                        voice_id,
+                        channel,
+                        note,
+                        velocity,
+                    });
+                }
+            };
         }
 
         ProcessStatus::Normal
