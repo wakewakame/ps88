@@ -57,9 +57,13 @@ impl Api {
             *userdata = UserData::Text(text);
             return;
         }
+        if info.args.get(0).is_null_or_undefined() {
+            *userdata = UserData::None;
+            return;
+        }
         return core::v8throw_type_error(
             info.scope,
-            &format!("argument must be a Uint8Array or String"),
+            &format!("argument must be a Uint8Array, string, null, or undefined"),
         );
     }
     pub(super) fn load(&mut self, mut info: core::CallbackInfo) {

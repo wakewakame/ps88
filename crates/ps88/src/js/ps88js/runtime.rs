@@ -449,6 +449,12 @@ mod tests {
             .unwrap();
         assert_eq!(rx.recv().unwrap(), "[3,4,5]");
 
+        // null / undefined も保存できる
+        rt.compile("ps88.save();").unwrap();
+        assert_eq!(&*userdata.lock().unwrap(), &UserData::None);
+        rt.compile("console.log(ps88.load());").unwrap();
+        assert_eq!(rx.recv().unwrap(), "null");
+
         // 文字列も保存できる
         rt.compile("ps88.save('test123');").unwrap();
         assert_eq!(
