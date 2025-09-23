@@ -1,91 +1,45 @@
-console.log("hello");
+"use strict";
+const keyboard = new Map();
+const preview = new Float32Array(1024);
 
-console.log(ps88.load());
-ps88.save("saved data");
-
-const toMono = (audio) => {
-  return audio.reduce((ch1, ch2, ch) => (
-    ch === 0 ?
-      ch1 :
-      ch1.map((val, j) => (0.5 * (val + ch2[j])))
-  ));
-};
-const fromMono = (audio, mono) => {
-  audio.map((ch) => {
-    ch.map((_, i) => {
-      ch[i] = mono[i];
-    });
-  });
-};
-const map = (mono, callback) => {
-  mono.map((_, i) => {
-    mono[i] = callback(mono[i], i);
-  });
-};
-
-const Buffer = class {
-  constructor(length) {
-    this.length = length;
-    this.buffer = [];
-  }
-  add(stereo) {
-    for (let i = 0; i < stereo.length; i++) {
-      if (this.buffer.length < i + 1) {
-        this.buffer.push([...Array(this.length)].map(() => (0)));
-      }
-      this.buffer[i] = this.buffer[i].concat([...stereo[i]]).slice(-this.length);
+ps88.audio((ctx) => {
+  for (let event of ctx.midi) {
+    if (event.type === "NoteOn") {
+      keyboard.set(event.note, { time: 0, ...event });
+    }
+    if (event.type === "NoteOff") {
+      keyboard.delete(event.note);
     }
   }
-  get() {
-    return this.buffer;
+
+  const length = ctx.audio[0]?.length ?? 0;
+  preview.copyWithin(0, length);
+  const previewOffset = preview.length - length;
+  for (let i = 0; i < length; i++) {
+    let wave = 0;
+    for (let key of keyboard.values()) {
+      if (i < key.timing) { continue; }
+      const freq = 440 * Math.pow(2, (key.note - 69) / 12);
+      wave +=
+        0.4 * Math.sin(key.time * freq * 2 * Math.PI) *
+        Math.pow(0.1, key.time);
+      key.time += 1 / ctx.sampleRate;
+    }
+    preview[previewOffset + i] = 0;
+    for (let ch of ctx.audio) {
+      preview[previewOffset + i] += (ch[i] + wave) / ctx.audio.length;
+      ch[i] = wave;
+    }
   }
-};
-let buffer = new Buffer(4096);
-
-const rect = (ctx, x, y, w, h, fill, stroke) => {
-  ctx.addPolygon([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], {fill, stroke, strokeClosed: true });
-};
-
-const show = (mono, x, y, w, h, scale) => {
-  const shape = [...Array(w >>> 0)].map((_, i) => {
-    const mi = Math.floor(mono.length * i / w);
-    const my = (scale * mono[mi] * 0.5 + 0.5) * h;
-    return [x + i, y + my];
-  });
-  return shape;
-};
-
-const show2 = (ctx, mono, x, y, w, h, scale) => {
-  const shape = show(mono, x, y, w, h, scale);
-  ctx.addPolygon(shape, {stroke: 0xFFFFFFFF});
-  rect(ctx, x, y, w, h, undefined, 0xFFFFFFFF);
-};
-
-let posSamples = 0;
-ps88.audio((ctx) => {
-  buffer.add(ctx.audio);
-  const mono = toMono(ctx.audio);
-  map(mono, (_, i) => {
-    return Math.sin(440 * 2 * Math.PI * (posSamples + i) / ctx.sampleRate) * 0.1;
-  });
-  fromMono(ctx.audio, mono);
-  posSamples += ctx.audio[0]?.length ?? 0;
 });
 
 ps88.gui((ctx) => {
-  rect(ctx, 0, 0, ctx.w, ctx.h, 0xAA4488FF);
-
-  buffer.get().map((buf, i) => {
-    show2(ctx, buf, 180, 120 + 120 * i, 360, 120, 5);
-  });
-
-  ctx.addText("Hello, World!", ctx.mouse.x, ctx.mouse.y, {
-    size: 16,
-    color: ctx.mouse.pressedL ? 0xFF44AAFF : 0xFFFFFFFF,
-  });
+  const path = [];
+  for (let x = 0; x <= ctx.w; x++) {
+    const i = Math.floor((preview.length - 1) * x / ctx.w);
+    const wave = preview[i];
+    const y = (wave * 0.5 + 0.5) * ctx.h;
+    path.push([x, y]);
+  }
+  ctx.addPolygon(path, {stroke: 0xFFFFFFFF, strokeWidth: 1});
 });
-
-//setProcessor(audio, gui);
-
-// TODO
-// - save() / load() の実装
