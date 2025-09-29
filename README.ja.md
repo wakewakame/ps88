@@ -2,34 +2,34 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-A synthesizer that lets you describe waveforms in JavaScript.
-It runs in both the browser and as a VST3 plugin.
+波形を JavaScript で記述するシンセサイザー。
+ブラウザと VST3 の両方で動作します。
 
 <p align="center">
   <img src="./docs/logo/logo.svg" width="160">
 </p>
 
-- Try it in the browser: https://wakewakame.github.io/ps88web
-- Download VST3: TODO
+- ブラウザで試す: https://wakewakame.github.io/ps88web
+- VST3 をダウンロード: TODO
 
-# Usage
+# 使い方
 
-To play a 440 Hz sine wave, write code like the example below.
+例えば 440 Hz の正弦波を鳴らすには以下のように記述します。
 
 ```js
-// Elapsed time in seconds
+// 経過時間 (秒)
 let time = 0;
 
-// Register the audio callback function
+// オーディオコールバック関数を登録
 ps88.audio((ctx) => {
-  // Length of the output waveform
+  // 出力する波形の長さ
   const length = ctx.audio[0]?.length ?? 0;
 
   for (let i = 0; i < length; i++) {
-    // Generate a 440 Hz sine wave
+    // 440 Hz の正弦波を生成
     let wave = Math.sin(time * 440 * 2 * Math.PI);
 
-    // Output the same waveform to every channel
+    // 全てのチャンネルに同じ波形を出力
     for (let ch of ctx.audio) {
       ch[i] = wave;
     }
@@ -38,14 +38,14 @@ ps88.audio((ctx) => {
 });
 ```
 
-You can also use microphone and MIDI input, and even render GUIs.
+他にもマイクや MIDI の入力を利用したり、GUI を描画したりすることもできます。
 
 - [API docs](https://wakewakame.github.io/ps88web/docs/variables/ps88.html)
 - [examples](https://wakewakame.github.io/ps88web/examples/index.html)
 
-# Build PS88
+# PS88 のビルド
 
-After installing [Rust](https://www.rust-lang.org/tools/install), run the following command:
+[Rust](https://www.rust-lang.org/tools/install) をインストール後、以下のコマンドを実行します。
 
 ```sh
 git clone https://github.com/wakewakame/ps88.git
@@ -55,7 +55,7 @@ cargo install --git https://github.com/robbert-vdh/nih-plug --rev 28b149ec4d6275
 xtask bundle ps88 --release
 ```
 
-When complete, the following will be generated in `target/bundled/`:
+実行すると `target/bundled/` に以下が生成されます。
 
 - `ps88.clap`
 - `ps88.vst3`
