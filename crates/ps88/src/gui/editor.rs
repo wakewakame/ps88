@@ -168,6 +168,22 @@ pub fn editor(
                                 if ui.button("copy").clicked() {
                                     ui.ctx().copy_text(code.clone());
                                 }
+                                if ui.button("paste").clicked() {
+                                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                        if let Ok(code) = clipboard.get_text() {
+                                            if let Err(err) = runtime.compile(&*code) {
+                                                state
+                                                    .log
+                                                    .lock()
+                                                    .unwrap()
+                                                    .push((err.to_string(), LogType::Error));
+                                            }
+                                            if let Ok(mut param_code) = params.code.lock() {
+                                                *param_code = code;
+                                            }
+                                        }
+                                    }
+                                }
                             });
                         });
                         egui::ScrollArea::vertical().show(ui, |ui| {
