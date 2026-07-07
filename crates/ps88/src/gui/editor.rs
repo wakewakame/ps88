@@ -3,6 +3,7 @@ use crate::file_watcher::*;
 use crate::js;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
+use std::collections::VecDeque;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
@@ -18,8 +19,19 @@ enum LogType {
     Error,
 }
 
+// ログパネルに保持する最大件数。超えた分は古いものから捨てる。
+const LOG_CAPACITY: usize = 1000;
+
+fn push_log(log: &Mutex<VecDeque<(String, LogType)>>, msg: String, log_type: LogType) {
+    let mut log = log.lock().unwrap();
+    if log.len() >= LOG_CAPACITY {
+        log.pop_front();
+    }
+    log.push_back((msg, log_type));
+}
+
 struct UserState {
-    log: Arc<Mutex<Vec<(String, LogType)>>>,
+    log: Arc<Mutex<VecDeque<(String, LogType)>>>,
     watcher: Arc<Mutex<Option<Box<dyn Watcher + Sync + Send>>>>,
     tab: Tab,
 }
@@ -27,7 +39,7 @@ struct UserState {
 impl UserState {
     fn new() -> Self {
         Self {
-            log: Arc::new(Mutex::new(vec![])),
+            log: Arc::new(Mutex::new(VecDeque::new())),
             watcher: Arc::new(Mutex::new(None)),
             tab: Tab::Main,
         }
@@ -44,7 +56,7 @@ pub fn editor(
         let Some(logger) = weak_log.upgrade() else {
             return false;
         };
-        logger.lock().unwrap().push((log, LogType::Info));
+        push_log(&logger, log, LogType::Info);
         return true;
     }));
     create_egui_editor(
@@ -146,10 +158,11 @@ pub fn editor(
                                         if let Ok(watcher) = load_script(&path, move |code| {
                                             if let Err(err) = runtime.compile(&*code) {
                                                 if let Some(logger) = weak_log.upgrade() {
-                                                    logger
-                                                        .lock()
-                                                        .unwrap()
-                                                        .push((err.to_string(), LogType::Error));
+                                                    push_log(
+                                                        &logger,
+                                                        err.to_string(),
+                                                        LogType::Error,
+                                                    );
                                                 }
                                             }
                                             if let Ok(mut param_code) = param_code.lock() {
@@ -172,11 +185,11 @@ pub fn editor(
                                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                                         if let Ok(code) = clipboard.get_text() {
                                             if let Err(err) = runtime.compile(&*code) {
-                                                state
-                                                    .log
-                                                    .lock()
-                                                    .unwrap()
-                                                    .push((err.to_string(), LogType::Error));
+                                                push_log(
+                                                    &state.log,
+                                                    err.to_string(),
+                                                    LogType::Error,
+                                                );
                                             }
                                             if let Ok(mut param_code) = params.code.lock() {
                                                 *param_code = code;
