@@ -162,8 +162,11 @@ pub fn editor(
                                     }
                                 });
                             }
-                            let mut check = true; // TODO
-                            ui.checkbox(&mut check, "hot reload");
+                            // TODO: ホットリロードの ON/OFF 切り替えは未実装。
+                            // 操作できるように見えないよう、実装までは無効表示にしておく。
+                            let mut check = true;
+                            ui.add_enabled(false, egui::Checkbox::new(&mut check, "hot reload"))
+                                .on_disabled_hover_text("not implemented yet");
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                                 if ui.button("copy").clicked() {
                                     ui.ctx().copy_text(code.clone());
