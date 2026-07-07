@@ -22,6 +22,12 @@ pub struct RuntimeActor {
 
     // JavaScript の実行を強制終了するためのハンドル
     isolate_handle: v8::IsolateHandle,
+
+    // audio() 用の応答チャンネル。
+    // オーディオスレッドでのアロケーションを避けるため、毎回生成せず使い回す。
+    // (audio() は単一のオーディオスレッドから呼ばれる想定だが、
+    //  RuntimeActor を Sync に保つため Mutex で包んでいる)
+    audio_response: Mutex<Receiver<core::Result<()>>>,
 }
 impl RuntimeActor {
     pub fn new(userdata: Arc<Mutex<UserData>>) -> core::Result<Self> {
@@ -32,6 +38,7 @@ impl RuntimeActor {
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
         let (init_tx, init_rx) = channel::<core::Result<v8::IsolateHandle>>();
+        let (audio_tx, audio_rx) = channel::<core::Result<()>>();
         let handle = std::thread::spawn(move || {
             // Runtime の初期化に失敗した場合はスレッド内で panic せず、
             // 結果を呼び出し元に返してスレッドを終了する
@@ -63,12 +70,11 @@ impl RuntimeActor {
                         sample_rate,
                         pos_samples,
                         bpm,
-                        result,
                     } => {
                         let RuntimeActorArgs { audio, midi, .. } = &mut *args_clone.lock().unwrap();
                         let mut audio: Vec<&mut [f32]> =
                             audio.iter_mut().map(|ch| ch.as_mut_slice()).collect();
-                        let _ = result.send(runtime.audio(
+                        let _ = audio_tx.send(runtime.audio(
                             audio.as_mut_slice(),
                             midi,
                             sample_rate,
@@ -88,6 +94,7 @@ impl RuntimeActor {
             sender: tx,
             args,
             isolate_handle,
+            audio_response: Mutex::new(audio_rx),
         })
     }
     // アクタースレッドにメッセージを送り、応答を待つ。
@@ -96,7 +103,7 @@ impl RuntimeActor {
     // 無限ループ等に陥っているとみなして JavaScript の実行を強制終了する。
     // (これがないと `while(true){}` のようなスクリプトを書いた時点で
     //  オーディオスレッドが永久にブロックし、ホスト DAW がフリーズする)
-    fn request<R>(&self, msg: RuntimeActorMessage, rx: Receiver<R>) -> core::Result<R> {
+    fn request<R>(&self, msg: RuntimeActorMessage, rx: &Receiver<R>) -> core::Result<R> {
         self.sender.send(msg).map_err(|_| dead_actor_error())?;
         match rx.recv_timeout(WATCHDOG_TIMEOUT) {
             Ok(result) => Ok(result),
@@ -121,11 +128,11 @@ impl RuntimeActor {
         logger: Box<dyn Fn(String) -> bool + Sync + Send>,
     ) -> core::Result<()> {
         let (tx, rx) = channel();
-        self.request(RuntimeActorMessage::AddLogger { logger, result: tx }, rx)
+        self.request(RuntimeActorMessage::AddLogger { logger, result: tx }, &rx)
     }
     pub fn reset(&self) -> core::Result<()> {
         let (tx, rx) = channel();
-        self.request(RuntimeActorMessage::Reset { result: tx }, rx)?
+        self.request(RuntimeActorMessage::Reset { result: tx }, &rx)?
     }
     pub fn compile(&self, code: &str) -> core::Result<()> {
         let (tx, rx) = channel();
@@ -134,7 +141,7 @@ impl RuntimeActor {
                 code: code.to_string(),
                 result: tx,
             },
-            rx,
+            &rx,
         )?
     }
     pub fn audio(
@@ -155,28 +162,40 @@ impl RuntimeActor {
                     .zip(args.audio.iter())
                     .any(|(a, b)| a.len() != b.len())
             {
-                // audio の長さが変化した場合は再確保
-                args.audio = audio.iter().map(|ch| ch.to_vec()).collect();
+                // audio の長さが変化した場合は再確保 (通常は初回のみ)。
+                // オーディオスレッドだが意図したアロケーションであることを明示する。
+                nih_plug::util::permit_alloc(|| {
+                    args.audio = audio.iter().map(|ch| ch.to_vec()).collect();
+                });
             } else {
                 // 長さが同じ場合は内容だけコピー
                 for (ch, buf) in audio.iter().zip(args.audio.iter_mut()) {
                     buf.copy_from_slice(ch);
                 }
             }
-            std::mem::swap(&mut args.midi, midi);
+            // NOTE: swap だと呼び出し元の事前確保したバッファが args 側の
+            // バッファと入れ替わって失われるため、コピーで受け渡す。
+            // アロケーションはバッファが過去最大のイベント数を超えた時のみ発生する。
+            args.midi.clear();
+            nih_plug::util::permit_alloc(|| args.midi.extend_from_slice(midi));
         }
 
         // メッセージを送信して処理を待つ
-        let (tx, rx) = channel();
-        self.request(
-            RuntimeActorMessage::Audio {
-                sample_rate,
-                pos_samples,
-                bpm,
-                result: tx,
-            },
-            rx,
-        )??;
+        // NOTE: 応答チャンネルの生成はアロケーションを伴うため、audio() では
+        // 事前生成したチャンネルを使い回す。
+        // また std::sync::mpsc の送信は内部でノードを 1 つ確保するため、
+        // その分のみ明示的にアロケーションを許可する。
+        let audio_response = self.audio_response.lock().unwrap();
+        nih_plug::util::permit_alloc(|| {
+            self.request(
+                RuntimeActorMessage::Audio {
+                    sample_rate,
+                    pos_samples,
+                    bpm,
+                },
+                &audio_response,
+            )
+        })??;
 
         // args から audio & midi にコピー
         {
@@ -184,14 +203,15 @@ impl RuntimeActor {
             for (ch, buf) in audio.iter_mut().zip(args.audio.iter()) {
                 ch.copy_from_slice(buf);
             }
-            std::mem::swap(midi, &mut args.midi);
+            midi.clear();
+            nih_plug::util::permit_alloc(|| midi.extend_from_slice(&args.midi));
         }
 
         Ok(())
     }
     pub fn gui(&self, args: GuiArgs) -> core::Result<Vec<Shape>> {
         let (tx, rx) = channel();
-        self.request(RuntimeActorMessage::Gui { args, result: tx }, rx)?
+        self.request(RuntimeActorMessage::Gui { args, result: tx }, &rx)?
     }
 }
 
@@ -228,7 +248,6 @@ enum RuntimeActorMessage {
         sample_rate: f64,
         pos_samples: u64,
         bpm: f64,
-        result: Sender<core::Result<()>>,
     },
     Gui {
         args: GuiArgs,
@@ -386,6 +405,28 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_audio_repeated_calls() {
+        let userdata = Arc::new(Mutex::new(UserData::None));
+        let rt = RuntimeActor::new(userdata).unwrap();
+
+        // 応答チャンネルを使い回しても連続で呼び出せる
+        rt.compile(
+            r#"
+                "use strict";
+                let count = 0;
+                ps88.audio((ctx) => { ctx.audio[0][0] = count += 1; });
+            "#,
+        )
+        .unwrap();
+        let mut midi = vec![];
+        for i in 1..=5 {
+            let mut audio = [&mut [0f32][..]];
+            rt.audio(&mut audio[..], &mut midi, 0., 0, 0.).unwrap();
+            assert_eq!(audio[0][0], i as f32);
+        }
     }
 
     #[test]

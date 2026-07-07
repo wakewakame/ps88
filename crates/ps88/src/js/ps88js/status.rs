@@ -9,7 +9,7 @@ pub enum UserData {
     Text(String),
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Debug, Clone, Copy)]
 #[serde(tag = "type")]
 pub enum NoteEvent {
     #[serde(rename_all = "camelCase")]
