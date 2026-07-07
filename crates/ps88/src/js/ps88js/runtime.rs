@@ -35,13 +35,18 @@ impl Runtime<'_> {
         let logger = Rc::new(RefCell::new(Vec::<Box<dyn Fn(String) -> bool>>::new()));
         let logger2 = logger.clone();
         let logger_func = move |msg: String| {
-            logger2.replace(
-                logger2
-                    .replace(vec![])
-                    .into_iter()
-                    .filter(|logger| logger(msg.clone()))
-                    .collect(),
-            );
+            // ログ関数の実行中に console.log が呼ばれて再入しても RefCell の二重 borrow で
+            // panic しないよう、一旦すべてのログ関数を取り出してから実行する。
+            // (取り出している間の再入呼び出しは空の Vec に対して動くため何も起きない)
+            let loggers = logger2.replace(vec![]);
+            // false を返したログ関数は取り除いて書き戻す
+            let retained = loggers
+                .into_iter()
+                .filter(|logger| logger(msg.clone()))
+                .collect();
+            // NOTE: ログ関数の実行中に add_logger で追加されたログ関数はここで失われるが、
+            // 追加はアクタースレッド経由でしか行われず実行中に割り込むことはないため問題ない
+            logger2.replace(retained);
         };
         let runtime = core::JsRuntimeBuilder::new()
             .add_api(api)
