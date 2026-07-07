@@ -7,6 +7,10 @@ use gui::editor;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
+// 1 回の process() で扱う MIDI イベント数の目安。
+// これを超えるとオーディオスレッドでバッファの再確保が発生する。
+const MIDI_EVENT_CAPACITY: usize = 1024;
+
 pub struct PS88 {
     // プラグイン内で保持するデータ
     params: Arc<params::PS88Params>,
@@ -15,6 +19,9 @@ pub struct PS88 {
     runtime: Arc<js::ps88js::RuntimeActor>,
 
     pos_samples: i64,
+
+    // process() 内でのアロケーションを避けるための MIDI イベント用バッファ
+    midi: Vec<js::ps88js::NoteEvent>,
 }
 
 impl Default for PS88 {
@@ -26,6 +33,7 @@ impl Default for PS88 {
             params: Arc::new(params),
             runtime,
             pos_samples: 0,
+            midi: Vec::with_capacity(MIDI_EVENT_CAPACITY),
         }
     }
 }
@@ -103,7 +111,11 @@ impl Plugin for PS88 {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         // イベントを取得
-        let mut midi = Vec::<js::ps88js::NoteEvent>::new();
+        // NOTE: オーディオスレッドでのアロケーションを避けるため、
+        // 事前確保したバッファを再利用する。
+        // 事前確保した容量を超えた場合のみアロケーションが発生する。
+        let midi = &mut self.midi;
+        midi.clear();
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn {
@@ -113,12 +125,14 @@ impl Plugin for PS88 {
                     note,
                     velocity,
                 } => {
-                    midi.push(js::ps88js::NoteEvent::NoteOn {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
+                    util::permit_alloc(|| {
+                        midi.push(js::ps88js::NoteEvent::NoteOn {
+                            timing,
+                            voice_id,
+                            channel,
+                            note,
+                            velocity,
+                        })
                     });
                 }
                 NoteEvent::NoteOff {
@@ -128,12 +142,14 @@ impl Plugin for PS88 {
                     note,
                     velocity,
                 } => {
-                    midi.push(js::ps88js::NoteEvent::NoteOff {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
+                    util::permit_alloc(|| {
+                        midi.push(js::ps88js::NoteEvent::NoteOff {
+                            timing,
+                            voice_id,
+                            channel,
+                            note,
+                            velocity,
+                        })
                     });
                 }
                 // TODO: 他のイベントも処理する
@@ -146,7 +162,7 @@ impl Plugin for PS88 {
             let transport = context.transport();
             if let Err(e) = self.runtime.audio(
                 buffer.as_slice(),
-                &mut midi,
+                midi,
                 transport.sample_rate as f64,
                 transport.pos_samples().unwrap_or(self.pos_samples) as u64,
                 transport.tempo.unwrap_or(0.0),
@@ -157,7 +173,7 @@ impl Plugin for PS88 {
         }
 
         // midi の内容を context に書き戻す
-        for event in midi {
+        for event in midi.drain(..) {
             match event {
                 js::ps88js::NoteEvent::NoteOn {
                     timing,
