@@ -135,7 +135,10 @@ impl<'a> JsRuntime<'a> {
     }
 
     // スクリプトを実行
-    pub fn run(&mut self, code: &str) -> Result<v8::Local<v8::Value>> {
+    // NOTE: 戻り値を v8::Local のまま返すと、この関数内で作った HandleScope が
+    // drop された後のハンドルを呼び出し元が使うことになり未定義動作となり得る。
+    // そのため HandleScope に依存しない v8::Global に変換して返す。
+    pub fn run(&mut self, code: &str) -> Result<v8::Global<v8::Value>> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
         let code = v8str(scope, code)?;
         let try_catch = &mut v8::TryCatch::new(scope);
@@ -144,7 +147,7 @@ impl<'a> JsRuntime<'a> {
         let result = script
             .run(try_catch)
             .ok_or(JsRuntimeError::RuntimeError(report_exceptions(try_catch)))?;
-        Ok(result)
+        Ok(v8::Global::new(try_catch, result))
     }
 
     pub fn scope(&mut self) -> v8::HandleScope {
@@ -156,14 +159,20 @@ impl<'a> JsRuntime<'a> {
 mod tests {
     use super::*;
 
+    // 実行結果の v8::Global<v8::Value> から数値を取り出すテスト用ヘルパー
+    fn to_number(rt: &mut JsRuntime, value: &v8::Global<v8::Value>) -> f64 {
+        let scope = &mut rt.scope();
+        let local = v8::Local::new(scope, value);
+        local.try_cast::<v8::Number>().unwrap().value()
+    }
+
     #[test]
     fn test_run() {
         let mut rt = JsRuntimeBuilder::new().build().unwrap();
 
         // 1 + 2 を実行して 3 が返る
-        let result = rt.run("1 + 2");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 3f64);
+        let result = rt.run("1 + 2").unwrap();
+        assert_eq!(to_number(&mut rt, &result), 3f64);
 
         // 構文エラーが適切に報告される
         let result = rt.run("1 + ");
@@ -256,17 +265,14 @@ mod tests {
             .unwrap();
 
         // test_add.add を呼び出せる
-        let result = rt.run("test_add.add(1, 2, 3);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 6f64);
+        let result = rt.run("test_add.add(1, 2, 3);").unwrap();
+        assert_eq!(to_number(&mut rt, &result), 6f64);
 
         // test_counter.add を呼び出せる
-        let result = rt.run("test_counter.add(1);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 1f64);
-        let result = rt.run("test_counter.add(2);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 3f64);
+        let result = rt.run("test_counter.add(1);").unwrap();
+        assert_eq!(to_number(&mut rt, &result), 1f64);
+        let result = rt.run("test_counter.add(2);").unwrap();
+        assert_eq!(to_number(&mut rt, &result), 3f64);
 
         // 引数の型が違う場合は適切に例外が投げられる
         let result = rt.run("test_counter.add('a');");
@@ -274,12 +280,10 @@ mod tests {
 
         // reset 後も問題なく動く
         rt.reset().unwrap();
-        let result = rt.run("test_add.add(4, 5, 6);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 15f64);
-        let result = rt.run("test_counter.add(1);");
-        let result = result.unwrap().try_cast::<v8::Number>().unwrap().value();
-        assert_eq!(result, 1f64);
+        let result = rt.run("test_add.add(4, 5, 6);").unwrap();
+        assert_eq!(to_number(&mut rt, &result), 15f64);
+        let result = rt.run("test_counter.add(1);").unwrap();
+        assert_eq!(to_number(&mut rt, &result), 1f64);
 
         // runtime を drop すると API のインスタンスも drop される
         drop(rt);
