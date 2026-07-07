@@ -114,7 +114,10 @@ impl Runtime<'_> {
         }();
         if result.is_err() {
             // エラーが起きたら状態をリセット
-            self.reset()?;
+            // NOTE: reset 自体のエラーで元のエラーを隠さないよう、こちらはログに出すだけにする
+            if let Err(err) = self.reset() {
+                log::error!("failed to reset runtime: {}", err);
+            }
         }
         result
     }
@@ -162,7 +165,10 @@ impl Runtime<'_> {
         }();
         if result.is_err() {
             // エラーが起きたら状態をリセット
-            self.reset()?;
+            // NOTE: reset 自体のエラーで元のエラーを隠さないよう、こちらはログに出すだけにする
+            if let Err(err) = self.reset() {
+                log::error!("failed to reset runtime: {}", err);
+            }
         }
         result
     }
