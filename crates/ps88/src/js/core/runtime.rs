@@ -150,6 +150,11 @@ impl<'a> JsRuntime<'a> {
     pub fn scope(&mut self) -> v8::HandleScope {
         v8::HandleScope::with_context(&mut self.isolate, &self.context)
     }
+
+    // 別スレッドから JavaScript の実行を強制終了するためのハンドルを返す
+    pub fn isolate_handle(&self) -> v8::IsolateHandle {
+        self.isolate.thread_safe_handle()
+    }
 }
 
 #[cfg(test)]
