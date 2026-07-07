@@ -40,13 +40,16 @@ pub fn editor(
 ) -> Option<Box<dyn Editor>> {
     let user_state = UserState::new();
     let weak_log = Arc::downgrade(&user_state.log);
-    runtime.add_logger(Box::new(move |log| {
+    let add_logger_result = runtime.add_logger(Box::new(move |log| {
         let Some(logger) = weak_log.upgrade() else {
             return false;
         };
         logger.lock().unwrap().push((log, LogType::Info));
         return true;
     }));
+    if let Err(err) = add_logger_result {
+        log::error!("failed to add logger: {}", err);
+    }
     create_egui_editor(
         EguiState::from_size(640 + 200, 480 + 30),
         user_state,
