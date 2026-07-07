@@ -49,7 +49,6 @@ After installing [Rust](https://www.rust-lang.org/tools/install), run the follow
 
 ```sh
 git clone https://github.com/wakewakame/ps88.git
-git submodule update --init --recursive
 cd ps88
 cargo install --git https://github.com/robbert-vdh/nih-plug --rev 28b149ec4d62757d0b448809148a0c3ca6e09a95 xtask
 xtask bundle ps88 --release
