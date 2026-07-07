@@ -8,11 +8,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+// ログ関数。false を返すとログの受信が終了する。
+type Logger = Box<dyn Fn(String) -> bool>;
+
 pub struct Runtime<'a> {
     status: Rc<RefCell<Status>>,
     runtime: core::JsRuntime<'a>,
     audio_buf: Option<v8::SharedRef<v8::BackingStore>>,
-    logger: Rc<RefCell<Vec<Box<dyn Fn(String) -> bool>>>>,
+    logger: Rc<RefCell<Vec<Logger>>>,
 }
 
 impl Runtime<'_> {
@@ -32,7 +35,7 @@ impl Runtime<'_> {
         .add("gui", Api::gui)
         .add("save", Api::save)
         .add("load", Api::load);
-        let logger = Rc::new(RefCell::new(Vec::<Box<dyn Fn(String) -> bool>>::new()));
+        let logger = Rc::new(RefCell::new(Vec::<Logger>::new()));
         let logger2 = logger.clone();
         let logger_func = move |msg: String| {
             logger2.replace(
@@ -102,7 +105,7 @@ impl Runtime<'_> {
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
                 callback.call(try_catch, this, &[ctx]).ok_or(
-                    core::JsRuntimeError::RuntimeError(core::report_exceptions(try_catch)),
+                    core::JsRuntimeError::Runtime(core::report_exceptions(try_catch)),
                 )?;
             }
 
@@ -152,13 +155,13 @@ impl Runtime<'_> {
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
                 callback.call(try_catch, this, &[ctx]).ok_or(
-                    core::JsRuntimeError::RuntimeError(core::report_exceptions(try_catch)),
+                    core::JsRuntimeError::Runtime(core::report_exceptions(try_catch)),
                 )?;
             }
 
             // 結果を shapes に書き戻す
             serde_v8::from_v8::<Vec<Shape>>(scope, shapes.into())
-                .map_err(|e| core::JsRuntimeError::RuntimeError(format!("serde error: {}", e)))
+                .map_err(|e| core::JsRuntimeError::Runtime(format!("serde error: {}", e)))
         }();
         if result.is_err() {
             // エラーが起きたら状態をリセット

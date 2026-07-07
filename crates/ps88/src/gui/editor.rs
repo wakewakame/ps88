@@ -45,7 +45,7 @@ pub fn editor(
             return false;
         };
         logger.lock().unwrap().push((log, LogType::Info));
-        return true;
+        true
     }));
     create_egui_editor(
         EguiState::from_size(640 + 200, 480 + 30),
@@ -144,7 +144,7 @@ pub fn editor(
                                     let result = rfd::FileDialog::new().pick_file();
                                     if let Some(path) = result {
                                         if let Ok(watcher) = load_script(&path, move |code| {
-                                            if let Err(err) = runtime.compile(&*code) {
+                                            if let Err(err) = runtime.compile(&code) {
                                                 if let Some(logger) = weak_log.upgrade() {
                                                     logger
                                                         .lock()
@@ -171,7 +171,7 @@ pub fn editor(
                                 if ui.button("paste").clicked() {
                                     if let Ok(mut clipboard) = arboard::Clipboard::new() {
                                         if let Ok(code) = clipboard.get_text() {
-                                            if let Err(err) = runtime.compile(&*code) {
+                                            if let Err(err) = runtime.compile(&code) {
                                                 state
                                                     .log
                                                     .lock()
@@ -205,7 +205,7 @@ fn load_script<F: Fn(String) + Sync + Send + 'static>(
     path: &std::path::Path,
     callback: F,
 ) -> Result<Box<dyn Watcher + Send + Sync>, ()> {
-    let Ok(mut file) = std::fs::File::open(&path) else {
+    let Ok(mut file) = std::fs::File::open(path) else {
         return Err(());
     };
     let mut code = String::new();
@@ -230,5 +230,5 @@ fn load_script<F: Fn(String) + Sync + Send + 'static>(
         }
     });
     // 呼び出し元が watcher を drop することでファイル監視が終了するようにする
-    return Ok(watcher);
+    Ok(watcher)
 }

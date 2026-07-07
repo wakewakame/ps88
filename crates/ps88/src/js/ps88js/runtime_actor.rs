@@ -28,7 +28,8 @@ impl RuntimeActor {
             for msg in rx {
                 match msg {
                     RuntimeActorMessage::AddLogger { logger, result } => {
-                        result.send(runtime.add_logger(logger)).unwrap();
+                        runtime.add_logger(logger);
+                        result.send(()).unwrap();
                     }
                     RuntimeActorMessage::Reset { result } => {
                         result.send(runtime.reset()).unwrap();
@@ -72,7 +73,7 @@ impl RuntimeActor {
         let (tx, rx) = channel();
         self.sender
             .send(RuntimeActorMessage::AddLogger {
-                logger: logger,
+                logger,
                 result: tx,
             })
             .unwrap();

@@ -61,10 +61,10 @@ impl Api {
             *userdata = UserData::None;
             return;
         }
-        return core::v8throw_type_error(
+        core::v8throw_type_error(
             info.scope,
-            &format!("argument must be a Uint8Array, string, null, or undefined"),
-        );
+            "argument must be a Uint8Array, string, null, or undefined",
+        )
     }
     pub(super) fn load(&mut self, mut info: core::CallbackInfo) {
         let status = self.status.borrow();
@@ -77,7 +77,6 @@ impl Api {
         match &*userdata {
             UserData::None => {
                 info.rv.set_null();
-                return;
             }
             UserData::Text(text) => {
                 let v8_str = match v8::String::new(info.scope, text) {
@@ -87,7 +86,6 @@ impl Api {
                     }
                 };
                 info.rv.set(v8_str.into());
-                return;
             }
             UserData::Bytes(bytes) => {
                 let backing_store =
@@ -99,9 +97,8 @@ impl Api {
                     return core::v8throw(info.scope, "failed to create Uint8Array");
                 };
                 info.rv.set(uint8_array.into());
-                return;
             }
-        };
+        }
     }
 }
 impl core::This<'_> for Api {

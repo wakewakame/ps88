@@ -49,7 +49,7 @@ impl Watcher for WatcherImpl {
             },
         }?;
         self.watcher = Some(watcher);
-        return Ok(rx);
+        Ok(rx)
     }
 }
 
@@ -61,32 +61,20 @@ pub fn relay_latest<Msg: Send + 'static>(
 ) -> std::sync::mpsc::Receiver<Msg> {
     let (tx_new, rx_new) = std::sync::mpsc::channel::<Msg>();
     std::thread::spawn(move || {
-        let mut last_msg;
-
-        'outer: loop {
-            match rx.recv() {
-                Ok(msg) => {
-                    last_msg = Some(msg);
-                    'inner: loop {
-                        match rx.recv_timeout(dur) {
-                            Ok(msg) => {
-                                last_msg = Some(msg);
-                                continue 'inner;
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                if let Some(msg) = last_msg {
-                                    let _ = tx_new.send(msg);
-                                }
-                                break 'inner;
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                break 'outer;
-                            }
-                        }
+        'outer: while let Ok(msg) = rx.recv() {
+            let mut last_msg = msg;
+            loop {
+                match rx.recv_timeout(dur) {
+                    Ok(msg) => {
+                        last_msg = msg;
                     }
-                }
-                Err(_) => {
-                    break;
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let _ = tx_new.send(last_msg);
+                        break;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break 'outer;
+                    }
                 }
             }
         }

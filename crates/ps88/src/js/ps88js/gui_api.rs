@@ -22,8 +22,8 @@ pub enum Shape {
     },
 }
 
-pub(super) fn gen_api_add_polygon<'a, 'b>(
-    scope: &'a mut v8::HandleScope<'b>,
+pub(super) fn gen_api_add_polygon<'b>(
+    scope: &mut v8::HandleScope<'b>,
     shapes: v8::Local<'b, v8::Array>,
 ) -> core::Result<v8::Local<'b, v8::Function>> {
     fn callback(
@@ -69,7 +69,7 @@ pub(super) fn gen_api_add_polygon<'a, 'b>(
             stroke_closed: options.as_ref().and_then(|o| o.stroke_closed),
         };
         let shape_js = match serde_v8::to_v8(scope, &shape) {
-            Ok(v) => v.into(),
+            Ok(v) => v,
             Err(err) => {
                 return core::v8throw(scope, &format!("unexpected: {}", err));
             }
@@ -79,13 +79,13 @@ pub(super) fn gen_api_add_polygon<'a, 'b>(
     v8::FunctionBuilder::<v8::Function>::new(callback)
         .data(shapes.into())
         .build(scope)
-        .ok_or(core::JsRuntimeError::RuntimeError(
+        .ok_or(core::JsRuntimeError::Runtime(
             "failed to create add_polygon function".to_string(),
         ))
 }
 
-pub(super) fn gen_api_add_text<'a, 'b>(
-    scope: &'a mut v8::HandleScope<'b>,
+pub(super) fn gen_api_add_text<'b>(
+    scope: &mut v8::HandleScope<'b>,
     shapes: v8::Local<'b, v8::Array>,
 ) -> core::Result<v8::Local<'b, v8::Function>> {
     fn callback(
@@ -142,7 +142,7 @@ pub(super) fn gen_api_add_text<'a, 'b>(
             color: options.as_ref().and_then(|o| o.color),
         };
         let shape_js = match serde_v8::to_v8(scope, &shape) {
-            Ok(v) => v.into(),
+            Ok(v) => v,
             Err(err) => {
                 return core::v8throw(scope, &format!("unexpected: {}", err));
             }
@@ -152,7 +152,7 @@ pub(super) fn gen_api_add_text<'a, 'b>(
     v8::FunctionBuilder::<v8::Function>::new(callback)
         .data(shapes.into())
         .build(scope)
-        .ok_or(core::JsRuntimeError::RuntimeError(
+        .ok_or(core::JsRuntimeError::Runtime(
             "failed to create add_text function".to_string(),
         ))
 }

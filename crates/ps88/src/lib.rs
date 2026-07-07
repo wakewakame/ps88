@@ -83,7 +83,7 @@ impl Plugin for PS88 {
         {
             if let Err(err) = self
                 .runtime
-                .compile(&*self.params.code.lock().unwrap().clone())
+                .compile(&self.params.code.lock().unwrap().clone())
             {
                 log::error!("{}", err);
             }

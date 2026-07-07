@@ -6,9 +6,12 @@ use deno_core::v8;
 use std::rc::Rc;
 use std::sync::Once;
 
+// console.log() の出力を受け取るロガー関数
+pub type Logger<'a> = Box<dyn Fn(String) + 'a>;
+
 pub struct JsRuntimeBuilder<'a> {
     api: Vec<Box<dyn ApiTrait<'a>>>,
-    logger: Vec<Box<dyn Fn(String) + 'a>>,
+    logger: Vec<Logger<'a>>,
 }
 
 impl<'a> JsRuntimeBuilder<'a> {
@@ -47,14 +50,14 @@ pub struct JsRuntime<'a> {
     api: Vec<Box<dyn ApiTrait<'a>>>,
 
     // console.log() の出力を得るためのロガー
-    logger: Rc<Vec<Box<dyn Fn(String) + 'a>>>,
+    logger: Rc<Vec<Logger<'a>>>,
 }
 
 impl<'a> JsRuntime<'a> {
-    fn new(api: Vec<Box<dyn ApiTrait<'a>>>, logger: Vec<Box<dyn Fn(String) + 'a>>) -> Result<Self> {
+    fn new(api: Vec<Box<dyn ApiTrait<'a>>>, logger: Vec<Logger<'a>>) -> Result<Self> {
         // V8 の初期化
-        static PUPPY_INIT: Once = Once::new();
-        PUPPY_INIT.call_once(move || {
+        static V8_INIT: Once = Once::new();
+        V8_INIT.call_once(move || {
             let platform = v8::new_default_platform(0, false).make_shared();
             v8::V8::initialize_platform(platform);
             v8::V8::initialize();
@@ -100,7 +103,7 @@ impl<'a> JsRuntime<'a> {
     }
 
     // JavaScript の実行環境をリセット
-    pub fn reset<'b>(&'b mut self) -> Result<()> {
+    pub fn reset(&mut self) -> Result<()> {
         // api の this をリセット
         self.api.iter().for_each(|api| api.reset());
 
@@ -135,19 +138,19 @@ impl<'a> JsRuntime<'a> {
     }
 
     // スクリプトを実行
-    pub fn run(&mut self, code: &str) -> Result<v8::Local<v8::Value>> {
+    pub fn run(&mut self, code: &str) -> Result<v8::Local<'_, v8::Value>> {
         let scope = &mut v8::HandleScope::with_context(&mut self.isolate, &self.context);
         let code = v8str(scope, code)?;
         let try_catch = &mut v8::TryCatch::new(scope);
         let script = v8::Script::compile(try_catch, code, None)
-            .ok_or(JsRuntimeError::CompileError(report_exceptions(try_catch)))?;
+            .ok_or(JsRuntimeError::Compile(report_exceptions(try_catch)))?;
         let result = script
             .run(try_catch)
-            .ok_or(JsRuntimeError::RuntimeError(report_exceptions(try_catch)))?;
+            .ok_or(JsRuntimeError::Runtime(report_exceptions(try_catch)))?;
         Ok(result)
     }
 
-    pub fn scope(&mut self) -> v8::HandleScope {
+    pub fn scope(&mut self) -> v8::HandleScope<'_> {
         v8::HandleScope::with_context(&mut self.isolate, &self.context)
     }
 }
@@ -167,11 +170,11 @@ mod tests {
 
         // 構文エラーが適切に報告される
         let result = rt.run("1 + ");
-        assert!(matches!(result, Err(JsRuntimeError::CompileError(_))));
+        assert!(matches!(result, Err(JsRuntimeError::Compile(_))));
 
         // 実行時エラーが適切に報告される
         let result = rt.run("throw new Error('test error')");
-        assert!(matches!(result, Err(JsRuntimeError::RuntimeError(_))));
+        assert!(matches!(result, Err(JsRuntimeError::Runtime(_))));
     }
 
     #[test]
@@ -270,7 +273,7 @@ mod tests {
 
         // 引数の型が違う場合は適切に例外が投げられる
         let result = rt.run("test_counter.add('a');");
-        assert!(matches!(result, Err(JsRuntimeError::RuntimeError(_))));
+        assert!(matches!(result, Err(JsRuntimeError::Runtime(_))));
 
         // reset 後も問題なく動く
         rt.reset().unwrap();
