@@ -151,7 +151,8 @@ impl egui::Widget for CanvasWidget {
                     size,
                     color,
                 } => {
-                    let color = color.unwrap_or(0x000000FF);
+                    // ダークテーマ背景でも見えるようデフォルトは白にする
+                    let color = color.unwrap_or(0xFFFFFFFF);
                     let color = egui::Color32::from_rgba_unmultiplied(
                         (color >> 24) as u8,
                         ((color >> 16) & 0xff) as u8,
