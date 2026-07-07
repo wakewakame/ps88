@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # .cargo/config.toml の V8_FROM_SOURCE=1 は Linux で cdylib をビルドするための
+  # 回避策だが、CI で V8 をソースビルドするのは重すぎるためプリビルドを使う。
+  # cargo の [env] は既存の環境変数を上書きしないため、ここで指定した値が優先される。
+  # (rusty_v8 の build.rs は "true" | "1" | "yes" 以外を偽として扱う)
+  V8_FROM_SOURCE: "0"
+
+jobs:
+  test:
+    # NOTE: Linux はプリビルドの V8 だと cdylib をリンクできない問題
+    # (https://github.com/denoland/rusty_v8/issues/1706) があり、
+    # ソースビルドは CI には重すぎるため、まずは macOS のみで回す
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        # TODO: clippy 警告の解消後に -D warnings を付けて厳格化する
+        run: cargo clippy --workspace --all-targets
+      - name: Run tests
+        run: cargo test --workspace
