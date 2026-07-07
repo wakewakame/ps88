@@ -2,8 +2,13 @@ use super::super::core;
 use super::gui_api::*;
 use super::runtime::*;
 use super::status::*;
-use std::sync::mpsc::{channel, Sender};
+use deno_core::v8;
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
+
+// スクリプトの実行がこの時間を超えて返ってこない場合、無限ループ等と
+// みなして JavaScript の実行を強制終了する
+const WATCHDOG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 // Runtime を複数スレッドから使えるようにするためのラッパー。
 // Runtime は Sync, Send を持たないため、そのままでは複数スレッドから使うことはできない。
@@ -14,6 +19,9 @@ pub struct RuntimeActor {
 
     // メソッドの引数は通常チャンネルで渡すが、サイズの大きいデータや参照型などは args 経由でやり取りする
     args: Arc<Mutex<RuntimeActorArgs>>,
+
+    // JavaScript の実行を強制終了するためのハンドル
+    isolate_handle: v8::IsolateHandle,
 }
 impl RuntimeActor {
     pub fn new(userdata: Arc<Mutex<UserData>>) -> core::Result<Self> {
@@ -23,13 +31,13 @@ impl RuntimeActor {
         }));
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
-        let (init_tx, init_rx) = channel::<core::Result<()>>();
+        let (init_tx, init_rx) = channel::<core::Result<v8::IsolateHandle>>();
         let handle = std::thread::spawn(move || {
             // Runtime の初期化に失敗した場合はスレッド内で panic せず、
             // 結果を呼び出し元に返してスレッドを終了する
             let mut runtime = match Runtime::new(userdata) {
                 Ok(runtime) => {
-                    let _ = init_tx.send(Ok(()));
+                    let _ = init_tx.send(Ok(runtime.isolate_handle()));
                     runtime
                 }
                 Err(err) => {
@@ -74,22 +82,38 @@ impl RuntimeActor {
                 }
             }
         });
-        init_rx.recv().map_err(|_| dead_actor_error())??;
+        let isolate_handle = init_rx.recv().map_err(|_| dead_actor_error())??;
         Ok(Self {
             handle,
             sender: tx,
             args,
+            isolate_handle,
         })
     }
     // アクタースレッドにメッセージを送り、応答を待つ。
     // アクタースレッドが停止している場合は panic せずエラーを返す。
-    fn request<R>(
-        &self,
-        msg: RuntimeActorMessage,
-        rx: std::sync::mpsc::Receiver<R>,
-    ) -> core::Result<R> {
+    // 応答が WATCHDOG_TIMEOUT を超えて返ってこない場合は、スクリプトが
+    // 無限ループ等に陥っているとみなして JavaScript の実行を強制終了する。
+    // (これがないと `while(true){}` のようなスクリプトを書いた時点で
+    //  オーディオスレッドが永久にブロックし、ホスト DAW がフリーズする)
+    fn request<R>(&self, msg: RuntimeActorMessage, rx: Receiver<R>) -> core::Result<R> {
         self.sender.send(msg).map_err(|_| dead_actor_error())?;
-        rx.recv().map_err(|_| dead_actor_error())
+        match rx.recv_timeout(WATCHDOG_TIMEOUT) {
+            Ok(result) => Ok(result),
+            Err(RecvTimeoutError::Timeout) => {
+                log::error!(
+                    "script did not finish within {:?}; terminating javascript execution",
+                    WATCHDOG_TIMEOUT
+                );
+                self.isolate_handle.terminate_execution();
+                let result = rx.recv().map_err(|_| dead_actor_error());
+                // タイムアウトの直後に実行が自然に終了していた場合、終了リクエストが
+                // 未消費のまま残って次の実行を巻き込むことがあるため取り消しておく
+                self.isolate_handle.cancel_terminate_execution();
+                result
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(dead_actor_error()),
+        }
     }
     // ログ関数を追加する。ログ関数が false を返すとログの受信が終了する。
     pub fn add_logger(
@@ -362,6 +386,30 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_infinite_loop_termination() {
+        let userdata = Arc::new(Mutex::new(UserData::None));
+        let rt = RuntimeActor::new(userdata).unwrap();
+
+        // 無限ループするスクリプトは WATCHDOG_TIMEOUT 後に強制終了されエラーになる
+        rt.compile("for(;;){}").unwrap_err();
+
+        // その後も通常のスクリプトは問題なく実行できる
+        rt.compile("console.log('alive');").unwrap();
+
+        // audio コールバック内の無限ループも同様に強制終了される
+        rt.compile(
+            r#"
+                "use strict";
+                ps88.audio((ctx) => { for(;;){} });
+            "#,
+        )
+        .unwrap();
+        let mut audio = [&mut [0f32][..]];
+        let mut midi = vec![];
+        rt.audio(&mut audio[..], &mut midi, 48000., 0, 0.).unwrap_err();
     }
 
     #[test]

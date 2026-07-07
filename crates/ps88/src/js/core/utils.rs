@@ -27,6 +27,9 @@ pub fn v8throw_type_error<'s>(scope: &mut v8::HandleScope<'s>, s: &str) {
 // TryCatch からエラー情報を文字列に変換する
 pub fn report_exceptions(try_catch: &mut v8::TryCatch<v8::HandleScope>) -> String {
     let mut description = Vec::<String>::new();
+    if try_catch.has_terminated() {
+        return "execution was terminated (script took too long)".into();
+    }
     let Some(exception) = try_catch.exception() else {
         return "no error".into();
     };

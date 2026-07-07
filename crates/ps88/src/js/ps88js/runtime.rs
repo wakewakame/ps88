@@ -58,6 +58,10 @@ impl Runtime<'_> {
     pub fn add_logger(&mut self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
         self.logger.borrow_mut().push(logger);
     }
+    // 別スレッドから JavaScript の実行を強制終了するためのハンドルを返す
+    pub fn isolate_handle(&self) -> v8::IsolateHandle {
+        self.runtime.isolate_handle()
+    }
     pub fn reset(&mut self) -> core::Result<()> {
         self.runtime.reset()
     }
