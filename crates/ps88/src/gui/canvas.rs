@@ -6,6 +6,39 @@ use nih_plug_egui::egui;
 use std::ops::Add;
 use std::sync::Arc;
 
+// 0xRRGGBBAA 形式の色を egui::Color32 に変換する
+fn color32(color: u32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(
+        (color >> 24) as u8,
+        ((color >> 16) & 0xff) as u8,
+        ((color >> 8) & 0xff) as u8,
+        (color & 0xff) as u8,
+    )
+}
+
+// lyon の頂点を egui の頂点に変換する
+fn vertex(pos: lyon::math::Point, color: egui::Color32) -> egui::epaint::Vertex {
+    egui::epaint::Vertex {
+        pos: egui::pos2(pos.x, pos.y),
+        uv: egui::epaint::WHITE_UV,
+        color,
+    }
+}
+
+// テッセレーション結果を egui の描画シェイプに変換する
+fn mesh_shape(geometry: VertexBuffers<egui::epaint::Vertex, u32>) -> egui::Shape {
+    egui::Shape::Mesh(
+        egui::Mesh {
+            indices: geometry.indices,
+            vertices: geometry.vertices,
+            // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
+            // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
+            texture_id: egui::TextureId::default(),
+        }
+        .into(),
+    )
+}
+
 pub(super) struct CanvasWidget(Arc<js::ps88js::RuntimeActor>, egui::Context);
 impl CanvasWidget {
     pub(super) fn new(runtime: Arc<js::ps88js::RuntimeActor>, egui_ctx: &egui::Context) -> Self {
@@ -66,76 +99,38 @@ impl egui::Widget for CanvasWidget {
                     builder.end(stroke_closed.unwrap_or(false));
                     let path = builder.build();
                     if let Some(fill) = fill {
-                        let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
-                            VertexBuffers::new();
+                        let color = color32(*fill);
+                        let mut geometry = VertexBuffers::<egui::epaint::Vertex, u32>::new();
                         let result = fill_tessellator.tessellate_path(
                             &path,
                             &FillOptions::default(),
-                            &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-                                egui::epaint::Vertex {
-                                    pos: egui::pos2(vertex.position().x, vertex.position().y),
-                                    uv: egui::epaint::WHITE_UV,
-                                    color: egui::Color32::from_rgba_unmultiplied(
-                                        (fill >> 24) as u8,
-                                        ((fill >> 16) & 0xff) as u8,
-                                        ((fill >> 8) & 0xff) as u8,
-                                        (fill & 0xff) as u8,
-                                    ),
-                                }
+                            &mut BuffersBuilder::new(&mut geometry, |v: FillVertex| {
+                                vertex(v.position(), color)
                             }),
                         );
                         if let Err(err) = result {
                             log::error!("failed to tessellate fill: {}", err);
                             continue;
                         }
-                        let mesh = egui::Shape::Mesh(
-                            egui::Mesh {
-                                indices: geometry.indices,
-                                vertices: geometry.vertices,
-                                // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
-                                // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
-                                texture_id: egui::TextureId::default(),
-                            }
-                            .into(),
-                        );
-                        painter.add(mesh);
+                        painter.add(mesh_shape(geometry));
                     }
                     if let Some(stroke) = stroke {
-                        let mut geometry: VertexBuffers<egui::epaint::Vertex, u32> =
-                            VertexBuffers::new();
+                        let color = color32(*stroke);
+                        let mut geometry = VertexBuffers::<egui::epaint::Vertex, u32>::new();
                         let result = stroke_tessellator.tessellate_path(
                             &path,
                             &StrokeOptions::default()
                                 .with_line_width(stroke_width.unwrap_or(1.0) as f32)
                                 .with_line_join(LineJoin::Bevel),
-                            &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
-                                egui::epaint::Vertex {
-                                    pos: egui::pos2(vertex.position().x, vertex.position().y),
-                                    uv: egui::epaint::WHITE_UV,
-                                    color: egui::Color32::from_rgba_unmultiplied(
-                                        (stroke >> 24) as u8,
-                                        ((stroke >> 16) & 0xff) as u8,
-                                        ((stroke >> 8) & 0xff) as u8,
-                                        (stroke & 0xff) as u8,
-                                    ),
-                                }
+                            &mut BuffersBuilder::new(&mut geometry, |v: StrokeVertex| {
+                                vertex(v.position(), color)
                             }),
                         );
                         if let Err(err) = result {
                             log::error!("failed to tessellate stroke: {}", err);
                             continue;
                         }
-                        let mesh = egui::Shape::Mesh(
-                            egui::Mesh {
-                                indices: geometry.indices,
-                                vertices: geometry.vertices,
-                                // デフォルトのテクスチャは egui::epaint::WHITE_UV の座標が白色であることが保証されている。
-                                // そしてテクスチャは Vertex.color と乗算されるため、この場合は Vertex.color がそのまま反映される。
-                                texture_id: egui::TextureId::default(),
-                            }
-                            .into(),
-                        );
-                        painter.add(mesh);
+                        painter.add(mesh_shape(geometry));
                     }
                 }
                 js::ps88js::Shape::Text {
@@ -145,13 +140,7 @@ impl egui::Widget for CanvasWidget {
                     size,
                     color,
                 } => {
-                    let color = color.unwrap_or(0x000000FF);
-                    let color = egui::Color32::from_rgba_unmultiplied(
-                        (color >> 24) as u8,
-                        ((color >> 16) & 0xff) as u8,
-                        ((color >> 8) & 0xff) as u8,
-                        (color & 0xff) as u8,
-                    );
+                    let color = color32(color.unwrap_or(0x000000FF));
                     let text = egui::Shape::Text(egui::epaint::TextShape::new(
                         egui::pos2(*x as f32, *y as f32).add(offset),
                         self.1.fonts(|fonts| {
