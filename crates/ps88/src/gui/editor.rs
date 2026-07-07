@@ -3,7 +3,6 @@ use crate::file_watcher::*;
 use crate::js;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 #[derive(PartialEq)]
@@ -142,22 +141,46 @@ pub fn editor(
                                 let weak_log = Arc::downgrade(&state.log);
                                 std::thread::spawn(move || {
                                     let result = rfd::FileDialog::new().pick_file();
-                                    if let Some(path) = result {
-                                        if let Ok(watcher) = load_script(&path, move |code| {
-                                            if let Err(err) = runtime.compile(&*code) {
-                                                if let Some(logger) = weak_log.upgrade() {
+                                    let Some(path) = result else {
+                                        return;
+                                    };
+                                    let callback_log = weak_log.clone();
+                                    let load_result = load_script(&path, move |code| {
+                                        // ファイルの読み込みに失敗した場合はログに出す
+                                        // (監視は継続するため、ファイルが直れば再度読み込まれる)
+                                        let code = match code {
+                                            Ok(code) => code,
+                                            Err(err) => {
+                                                if let Some(logger) = callback_log.upgrade() {
                                                     logger
                                                         .lock()
                                                         .unwrap()
-                                                        .push((err.to_string(), LogType::Error));
+                                                        .push((err, LogType::Error));
                                                 }
+                                                return;
                                             }
-                                            if let Ok(mut param_code) = param_code.lock() {
-                                                *param_code = code;
+                                        };
+                                        if let Err(err) = runtime.compile(&code) {
+                                            if let Some(logger) = callback_log.upgrade() {
+                                                logger
+                                                    .lock()
+                                                    .unwrap()
+                                                    .push((err.to_string(), LogType::Error));
                                             }
-                                        }) {
+                                        }
+                                        if let Ok(mut param_code) = param_code.lock() {
+                                            *param_code = code;
+                                        }
+                                    });
+                                    match load_result {
+                                        Ok(watcher) => {
                                             let mut state_watcher = state_watcher.lock().unwrap();
                                             *state_watcher = Some(watcher);
+                                        }
+                                        Err(err) => {
+                                            if let Some(logger) = weak_log.upgrade() {
+                                                logger.lock().unwrap().push((err, LogType::Error));
+                                            }
                                         }
                                     }
                                 });
@@ -201,34 +224,35 @@ pub fn editor(
     )
 }
 
-fn load_script<F: Fn(String) + Sync + Send + 'static>(
+// path のファイルを読み込んで callback に渡し、以降もファイルの変更を監視して
+// 変更があるたびに callback を呼び出す。
+// 監視開始後の読み込みエラー (ファイルの削除や非 UTF-8 化など) は callback に
+// Err として渡され、監視自体は継続する。
+fn load_script<F: Fn(Result<String, String>) + Sync + Send + 'static>(
     path: &std::path::Path,
     callback: F,
-) -> Result<Box<dyn Watcher + Send + Sync>, ()> {
-    let Ok(mut file) = std::fs::File::open(&path) else {
-        return Err(());
-    };
-    let mut code = String::new();
-    file.read_to_string(&mut code).unwrap();
-    callback(code);
+) -> Result<Box<dyn Watcher + Send + Sync>, String> {
+    let code = read_file(path)?;
+    callback(Ok(code));
 
     let mut watcher: Box<dyn Watcher + Send + Sync> = Box::new(WatcherImpl::new());
-    let Ok(rx) = watcher.watch(path) else {
-        return Err(());
-    };
+    let rx = watcher
+        .watch(path)
+        .map_err(|err| format!("failed to watch {}: {}", path.display(), err))?;
     let rx = relay_latest(rx, std::time::Duration::from_millis(100));
     let path = path.to_path_buf();
     std::thread::spawn(move || {
-        let path = path;
         for _ in rx {
-            let Ok(mut file) = std::fs::File::open(&path) else {
-                break;
-            };
-            let mut code = String::new();
-            file.read_to_string(&mut code).unwrap();
-            callback(code);
+            callback(read_file(&path));
         }
     });
     // 呼び出し元が watcher を drop することでファイル監視が終了するようにする
-    return Ok(watcher);
+    Ok(watcher)
+}
+
+// ファイルを UTF-8 文字列として読み込む。
+// 非 UTF-8 のファイルが選択された場合などもエラーとして返す。
+fn read_file(path: &std::path::Path) -> Result<String, String> {
+    std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {}: {}", path.display(), err))
 }
