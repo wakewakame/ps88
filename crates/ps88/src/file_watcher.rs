@@ -1,4 +1,3 @@
-#[cfg_attr(test, mockall::automock)]
 pub trait Watcher {
     fn watch(&mut self, path: &std::path::Path) -> Result<std::sync::mpsc::Receiver<()>, Error>;
 }
