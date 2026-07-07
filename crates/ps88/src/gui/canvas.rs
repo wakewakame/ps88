@@ -86,9 +86,6 @@ impl egui::Widget for CanvasWidget {
                         );
                         if let Err(err) = result {
                             log::error!("failed to tessellate fill: {}", err);
-                            if let Err(err) = self.0.reset() {
-                                log::error!("failed to reset runtime: {}", err);
-                            }
                             continue;
                         }
                         let mesh = egui::Shape::Mesh(
@@ -125,10 +122,7 @@ impl egui::Widget for CanvasWidget {
                             }),
                         );
                         if let Err(err) = result {
-                            log::error!("failed to tessellate fill: {}", err);
-                            if let Err(err) = self.0.reset() {
-                                log::error!("failed to reset runtime: {}", err);
-                            }
+                            log::error!("failed to tessellate stroke: {}", err);
                             continue;
                         }
                         let mesh = egui::Shape::Mesh(
