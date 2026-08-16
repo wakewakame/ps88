@@ -49,7 +49,6 @@ After installing [Rust](https://www.rust-lang.org/tools/install), run the follow
 
 ```sh
 git clone https://github.com/wakewakame/ps88.git
-git submodule update --init --recursive
 cd ps88
 cargo install --git https://codeberg.org/RustAudio/nice-plug.git --rev 42f480568d383632bbcb2f29d0e4349b93566432 cargo-nice-plug
 cargo nice-plug bundle ps88 --release
