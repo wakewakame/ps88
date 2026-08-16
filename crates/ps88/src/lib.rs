@@ -212,6 +212,6 @@ nice_export_clap!(PS88);
 impl Vst3Plugin for PS88 {
     const VST3_CLASS_ID: [u8; 16] = *b"PS88____________";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
+        &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
 }
 nice_export_vst3!(PS88);
