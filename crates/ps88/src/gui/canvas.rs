@@ -13,6 +13,8 @@ impl CanvasWidget {
 }
 impl egui::Widget for CanvasWidget {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        self.1.request_repaint();
+
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
         let offset = ui.min_rect().min.to_vec2();
         let size = ui.min_rect().size();
