@@ -35,7 +35,7 @@ impl<'a, 'b> Dict<'a, 'b> {
 
 pub(super) fn midi_to_obj<'a, 'b>(
     scope: &'a mut v8::HandleScope<'b>,
-    midi: &'a mut Vec<NoteEvent>,
+    midi: &'a [NoteEvent],
 ) -> core::Result<v8::Local<'b, v8::Value>> {
     core::wrap_err(serde_v8::to_v8(scope, midi))
 }
@@ -64,8 +64,8 @@ pub(super) fn audio_to_backing_store<'a, 'b>(
     let input_size = src.iter().map(|ch| ch.len()).sum::<usize>() * bytes_per_sample;
     let alloc_size = dst.as_ref().map(|b| b.byte_length());
     if Some(input_size) != alloc_size {
-        // NOTE: ArrayBuffer::new() で生成されるメモリはどうやら 16 byte 境界にアラインされるらしいので多分安全...? (ちゃんと確認していない)
-        // BackingStore のメモリを自分で生成する方法もあるが、安全なのかよくわかっていないので今回はやめておく。
+        // NOTE: V8 の ArrayBuffer::new() が確保するメモリは最低でも 8 byte 境界に
+        // アラインされるため、f32 (align 4) の配列として扱っても安全。
         let array_buffer = v8::ArrayBuffer::new(scope, input_size);
         *dst = Some(array_buffer.get_backing_store());
     }
@@ -78,7 +78,7 @@ pub(super) fn audio_to_backing_store<'a, 'b>(
     for ch in src.iter() {
         if let Some(pointer) = backing_store.data() {
             unsafe {
-                std::ptr::copy(
+                std::ptr::copy_nonoverlapping(
                     ch.as_ptr(),
                     pointer.cast::<f32>().add(offset).as_ptr(),
                     ch.len(),
@@ -101,7 +101,6 @@ pub(super) fn audio_to_backing_store<'a, 'b>(
     let audio_js = v8::Array::new_with_elements(
         scope,
         float32arrays
-            .clone()
             .into_iter()
             .map(|f32a| f32a.into())
             .collect::<Vec<v8::Local<v8::Value>>>()
@@ -124,7 +123,7 @@ pub(super) fn backing_store_to_audio(
     let mut offset = 0usize;
     for ch in dst.iter_mut() {
         unsafe {
-            std::ptr::copy(
+            std::ptr::copy_nonoverlapping(
                 pointer.cast::<f32>().add(offset).as_ptr(),
                 ch.as_mut_ptr(),
                 ch.len(),
