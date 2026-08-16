@@ -4,7 +4,7 @@ mod js;
 mod params;
 
 use gui::editor;
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use std::sync::Arc;
 
 pub struct PS88 {
@@ -207,11 +207,11 @@ impl ClapPlugin for PS88 {
         ClapFeature::Stereo,
     ];
 }
-nih_export_clap!(PS88);
+nice_export_clap!(PS88);
 
 impl Vst3Plugin for PS88 {
     const VST3_CLASS_ID: [u8; 16] = *b"PS88____________";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
 }
-nih_export_vst3!(PS88);
+nice_export_vst3!(PS88);

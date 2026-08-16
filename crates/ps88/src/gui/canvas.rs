@@ -2,7 +2,6 @@ use crate::js;
 use lyon::math::point;
 use lyon::path::Path;
 use lyon::tessellation::*;
-use nih_plug_egui::egui;
 use std::ops::Add;
 use std::sync::Arc;
 
@@ -160,7 +159,7 @@ impl egui::Widget for CanvasWidget {
                     );
                     let text = egui::Shape::Text(egui::epaint::TextShape::new(
                         egui::pos2(*x as f32, *y as f32).add(offset),
-                        self.1.fonts(|fonts| {
+                        self.1.fonts_mut(|fonts| {
                             fonts.layout_job(egui::text::LayoutJob::simple_singleline(
                                 text.clone(),
                                 egui::FontId::monospace(size.unwrap_or(12.0) as f32),

@@ -49,9 +49,9 @@
 - その他
     - [ ] 依存ライブラリを更新する
         - [ ] rusty\_v8
-        - [ ] nih-plug
+        - [ ] nice-plug
     - [ ] GUI のレンダリングを opengl から wgpu に切り替える
-        - https://github.com/BillyDM/egui-baseview/pull/18 が nih-plug に取り込まれれば簡単に実現できそう
+        - https://github.com/BillyDM/egui-baseview/pull/18 が nice-plug に取り込まれれば簡単に実現できそう
     - [ ] GUI 上に js エディタを置く
         - 現時点では MacOS の Reaper 上からだとキー入力を受け付けられないため、それを直す必要がある
         - https://github.com/RustAudio/baseview/issues/169 で解決される可能性はある

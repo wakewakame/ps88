@@ -51,8 +51,8 @@ ps88.audio((ctx) => {
 git clone https://github.com/wakewakame/ps88.git
 git submodule update --init --recursive
 cd ps88
-cargo install --git https://github.com/robbert-vdh/nih-plug --rev 28b149ec4d62757d0b448809148a0c3ca6e09a95 xtask
-xtask bundle ps88 --release
+cargo install --git https://codeberg.org/RustAudio/nice-plug.git --rev 42f480568d383632bbcb2f29d0e4349b93566432 cargo-nice-plug
+cargo nice-plug bundle ps88 --release
 ```
 
 実行すると `target/bundled/` に以下が生成されます。

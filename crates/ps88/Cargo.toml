@@ -15,8 +15,9 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 roboto-mono = { workspace = true }
 material-design-icons = { workspace = true }
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "28b149ec4d62757d0b448809148a0c3ca6e09a95", features = ["assert_process_allocs", "standalone"] }
-nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "28b149ec4d62757d0b448809148a0c3ca6e09a95", default-features = false, features = ["opengl"] }
+egui = { version = "0.35.0", features = ["default_fonts"] }
+nice-plug = { git = "https://codeberg.org/RustAudio/nice-plug.git", rev = "42f480568d383632bbcb2f29d0e4349b93566432", features = ["assert_process_allocs", "standalone"] }
+nice-plug-egui = { git = "https://codeberg.org/RustAudio/nice-plug.git", rev = "42f480568d383632bbcb2f29d0e4349b93566432", default-features = false, features = ["opengl"] }
 serde = { version = "1", features = ["derive"] }
 deno_core = "0.355.0"
 thiserror = "2.0.9"

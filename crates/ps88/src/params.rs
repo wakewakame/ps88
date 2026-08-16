@@ -1,5 +1,5 @@
 use crate::js::ps88js::UserData;
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use std::sync::{Arc, Mutex};
 
 const DEFAULT_SCRIPT: &'static str = std::include_str!("default_script.js");

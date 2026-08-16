@@ -1,8 +1,8 @@
 use super::canvas::*;
 use crate::file_watcher::*;
 use crate::js;
-use nih_plug::prelude::*;
-use nih_plug_egui::{create_egui_editor, egui, EguiState};
+use nice_plug::{editor::dpi::LogicalSize, prelude::*};
+use nice_plug_egui::{create_egui_editor, EguiState};
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
@@ -48,9 +48,10 @@ pub fn editor(
         return true;
     }));
     create_egui_editor(
-        EguiState::from_size(640 + 200, 480 + 30),
+        EguiState::from_size(LogicalSize::new((640 + 200) as f32, (480 + 30) as f32)),
         user_state,
-        |egui_ctx, _| {
+        Default::default(),
+        |egui_ctx, _, _| {
             let mut fonts = egui::FontDefinitions::default();
             fonts.font_data.insert(
                 "RobotoMono".to_string(),
@@ -62,7 +63,6 @@ pub fn editor(
                     .tweak(egui::FontTweak {
                         scale: 1.00,
                         y_offset_factor: 0.16,
-                        baseline_offset_factor: -0.16,
                         ..Default::default()
                     })
                     .into(),
@@ -84,11 +84,11 @@ pub fn editor(
             );
             egui_ctx.set_fonts(fonts);
         },
-        move |egui_ctx, _setter, state| {
-            egui::TopBottomPanel::top("tab")
+        move |ui, _setter, _queue, state| {
+            egui::Panel::top("tab")
                 .frame(egui::Frame::new())
-                .exact_height(30.0)
-                .show(egui_ctx, |ui| {
+                .exact_size(30.0)
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("\u{e037}main").clicked() {
                             state.tab = Tab::Main;
@@ -98,10 +98,10 @@ pub fn editor(
                         }
                     });
                 });
-            egui::SidePanel::right("right_panel")
+            egui::Panel::right("right_panel")
                 .frame(egui::Frame::new())
-                .exact_width(200.0)
-                .show(egui_ctx, |ui| {
+                .exact_size(200.0)
+                .show(ui, |ui| {
                     ui.vertical(|ui| {
                         if ui.button("clear").clicked() {
                             state.log.lock().unwrap().clear();
@@ -125,11 +125,11 @@ pub fn editor(
                 });
             egui::CentralPanel::default()
                 .frame(egui::Frame::new())
-                .show(egui_ctx, |ui| match state.tab {
+                .show(ui, |ui| match state.tab {
                     Tab::Main => {
                         ui.add_sized(
                             egui::Vec2::new(640., 480.),
-                            CanvasWidget::new(runtime.clone(), egui_ctx),
+                            CanvasWidget::new(runtime.clone(), ui),
                         );
                     }
                     Tab::Code => {
