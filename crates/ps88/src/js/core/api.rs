@@ -39,8 +39,18 @@ impl<'a, T: This<'a>> Api<'a, T> {
         }
     }
 
-    // JavaScript 側から呼び出される関数を登録する
-    pub fn add<F: Fn(&mut T, CallbackInfo) + Sized>(mut self, name: &str, _: F) -> Self {
+    /// JavaScript 側から呼び出される関数を登録する。
+    ///
+    /// `_f` には変数をキャプチャしないクロージャ (または関数) のみ指定できる。
+    /// キャプチャを含むクロージャを渡すと、コンパイル時 assert により
+    /// "the provided closure must not capture any variables" エラーになる。
+    /// 状態を持ちたい場合はキャプチャの代わりに `this` (第 1 引数の `&mut T`) を使う。
+    ///
+    /// なお `_f` の値は使われず、型情報 `F` だけを利用している。
+    /// これは v8 に登録できるのが状態を持たない関数ポインタ (`v8::FunctionCallback`)
+    /// のみであり、サイズ 0 のクロージャであれば値を持ち運ばなくても
+    /// `std::mem::zeroed::<F>()` で後から再構成できるため。
+    pub fn add<F: Fn(&mut T, CallbackInfo) + Sized>(mut self, name: &str, _f: F) -> Self {
         // 関数の型をチェックする
         const {
             assert!(
