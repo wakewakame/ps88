@@ -46,7 +46,7 @@ pub(super) fn obj_to_midi(
 ) -> core::Result<Vec<NoteEvent>> {
     match serde_v8::from_v8::<Vec<NoteEvent>>(scope, arr) {
         Ok(midi) => Ok(midi),
-        Err(e) => Err(core::JsRuntimeError::RuntimeError(format!(
+        Err(e) => Err(core::JsRuntimeError::Runtime(format!(
             "failed to convert midi from v8: {}",
             e
         ))),
@@ -85,13 +85,13 @@ pub(super) fn audio_to_backing_store<'a, 'b>(
                 );
             }
         } else if input_size > 0 {
-            return Err(core::JsRuntimeError::UnexpectedError(
+            return Err(core::JsRuntimeError::Unexpected(
                 "failed to get backing store data pointer".to_string(),
             ));
         }
         let float32array =
             v8::Float32Array::new(scope, array_buffer, offset * bytes_per_sample, ch.len()).ok_or(
-                core::JsRuntimeError::UnexpectedError("failed to create Float32Array".to_string()),
+                core::JsRuntimeError::Unexpected("failed to create Float32Array".to_string()),
             )?;
         float32arrays.push(float32array);
         offset += ch.len();

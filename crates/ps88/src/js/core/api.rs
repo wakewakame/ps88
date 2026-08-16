@@ -122,7 +122,7 @@ impl<'a, T: This<'a>> ApiTrait<'a> for Api<'a, T> {
         }
         let obj = obj_t
             .new_instance(scope)
-            .ok_or(JsRuntimeError::UnexpectedError(
+            .ok_or(JsRuntimeError::Unexpected(
                 "failed to create api object".into(),
             ))?;
         let name = v8str(scope, &self.name)?;

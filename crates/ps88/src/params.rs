@@ -2,7 +2,7 @@ use crate::js::ps88js::UserData;
 use nice_plug::prelude::*;
 use std::sync::{Arc, Mutex};
 
-const DEFAULT_SCRIPT: &'static str = std::include_str!("default_script.js");
+const DEFAULT_SCRIPT: &str = std::include_str!("default_script.js");
 
 // プラグイン内で保持するデータ
 #[derive(Params)]

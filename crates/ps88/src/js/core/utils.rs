@@ -5,7 +5,7 @@ pub fn v8str<'s>(
     scope: &mut v8::HandleScope<'s, ()>,
     s: &str,
 ) -> Result<v8::Local<'s, v8::String>> {
-    let name = v8::String::new(scope, s).ok_or(JsRuntimeError::UnexpectedError(format!(
+    let name = v8::String::new(scope, s).ok_or(JsRuntimeError::Unexpected(format!(
         "failed to create string: {}",
         s
     )))?;
@@ -84,8 +84,8 @@ pub fn report_exceptions(try_catch: &mut v8::TryCatch<v8::HandleScope>) -> Strin
         .and_then(|s| s.to_string(try_catch))
         .map(|s| s.to_rust_string_lossy(try_catch))
     {
-        description.push(format!("{}", stack_trace));
+        description.push(stack_trace.to_string());
     }
 
-    return description.join("\n");
+    description.join("\n")
 }
