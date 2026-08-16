@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_save_load() {
         let userdata = Arc::new(Mutex::new(UserData::None));
-        let mut rt = Runtime::new(userdata.clone()).unwrap();
+        let rt = RuntimeActor::new(userdata.clone()).unwrap();
         let (tx, rx) = channel();
         rt.add_logger(Box::new(move |msg: String| {
             tx.send(msg).unwrap();
