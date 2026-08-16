@@ -23,18 +23,33 @@ impl RuntimeActor {
         }));
         let args_clone = args.clone();
         let (tx, rx) = channel::<RuntimeActorMessage>();
+        let (init_tx, init_rx) = channel::<core::Result<()>>();
         let handle = std::thread::spawn(move || {
-            let mut runtime = Runtime::new(userdata).unwrap();
+            // Runtime の初期化に失敗した場合はスレッド内で panic せず、
+            // 結果を呼び出し元に返してスレッドを終了する
+            let mut runtime = match Runtime::new(userdata) {
+                Ok(runtime) => {
+                    let _ = init_tx.send(Ok(()));
+                    runtime
+                }
+                Err(err) => {
+                    let _ = init_tx.send(Err(err));
+                    return;
+                }
+            };
             for msg in rx {
+                // NOTE: 呼び出し元が既に応答を待っていない場合も panic しないよう、
+                // 応答の送信エラーは無視する
                 match msg {
                     RuntimeActorMessage::AddLogger { logger, result } => {
-                        result.send(runtime.add_logger(logger)).unwrap();
+                        runtime.add_logger(logger);
+                        let _ = result.send(());
                     }
                     RuntimeActorMessage::Reset { result } => {
-                        result.send(runtime.reset()).unwrap();
+                        let _ = result.send(runtime.reset());
                     }
                     RuntimeActorMessage::Compile { code, result } => {
-                        result.send(runtime.compile(&code)).unwrap();
+                        let _ = result.send(runtime.compile(&code));
                     }
                     RuntimeActorMessage::Audio {
                         sample_rate,
@@ -45,55 +60,58 @@ impl RuntimeActor {
                         let RuntimeActorArgs { audio, midi, .. } = &mut *args_clone.lock().unwrap();
                         let mut audio: Vec<&mut [f32]> =
                             audio.iter_mut().map(|ch| ch.as_mut_slice()).collect();
-                        result
-                            .send(runtime.audio(
-                                audio.as_mut_slice(),
-                                midi,
-                                sample_rate,
-                                pos_samples,
-                                bpm,
-                            ))
-                            .unwrap();
+                        let _ = result.send(runtime.audio(
+                            audio.as_mut_slice(),
+                            midi,
+                            sample_rate,
+                            pos_samples,
+                            bpm,
+                        ));
                     }
                     RuntimeActorMessage::Gui { args, result } => {
-                        result.send(runtime.gui(args)).unwrap();
+                        let _ = result.send(runtime.gui(args));
                     }
                 }
             }
         });
+        init_rx.recv().map_err(|_| dead_actor_error())??;
         Ok(Self {
             handle,
             sender: tx,
             args,
         })
     }
+    // アクタースレッドにメッセージを送り、応答を待つ。
+    // アクタースレッドが停止している場合は panic せずエラーを返す。
+    fn request<R>(
+        &self,
+        msg: RuntimeActorMessage,
+        rx: std::sync::mpsc::Receiver<R>,
+    ) -> core::Result<R> {
+        self.sender.send(msg).map_err(|_| dead_actor_error())?;
+        rx.recv().map_err(|_| dead_actor_error())
+    }
     // ログ関数を追加する。ログ関数が false を返すとログの受信が終了する。
-    pub fn add_logger(&self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
+    pub fn add_logger(
+        &self,
+        logger: Box<dyn Fn(String) -> bool + Sync + Send>,
+    ) -> core::Result<()> {
         let (tx, rx) = channel();
-        self.sender
-            .send(RuntimeActorMessage::AddLogger {
-                logger: logger,
-                result: tx,
-            })
-            .unwrap();
-        rx.recv().unwrap()
+        self.request(RuntimeActorMessage::AddLogger { logger, result: tx }, rx)
     }
     pub fn reset(&self) -> core::Result<()> {
         let (tx, rx) = channel();
-        self.sender
-            .send(RuntimeActorMessage::Reset { result: tx })
-            .unwrap();
-        rx.recv().unwrap()
+        self.request(RuntimeActorMessage::Reset { result: tx }, rx)?
     }
     pub fn compile(&self, code: &str) -> core::Result<()> {
         let (tx, rx) = channel();
-        self.sender
-            .send(RuntimeActorMessage::Compile {
+        self.request(
+            RuntimeActorMessage::Compile {
                 code: code.to_string(),
                 result: tx,
-            })
-            .unwrap();
-        rx.recv().unwrap()
+            },
+            rx,
+        )?
     }
     pub fn audio(
         &self,
@@ -126,15 +144,15 @@ impl RuntimeActor {
 
         // メッセージを送信して処理を待つ
         let (tx, rx) = channel();
-        self.sender
-            .send(RuntimeActorMessage::Audio {
+        self.request(
+            RuntimeActorMessage::Audio {
                 sample_rate,
                 pos_samples,
                 bpm,
                 result: tx,
-            })
-            .unwrap();
-        rx.recv().unwrap()?;
+            },
+            rx,
+        )??;
 
         // args から audio & midi にコピー
         {
@@ -149,11 +167,12 @@ impl RuntimeActor {
     }
     pub fn gui(&self, args: GuiArgs) -> core::Result<Vec<Shape>> {
         let (tx, rx) = channel();
-        self.sender
-            .send(RuntimeActorMessage::Gui { args, result: tx })
-            .unwrap();
-        rx.recv().unwrap()
+        self.request(RuntimeActorMessage::Gui { args, result: tx }, rx)?
     }
+}
+
+fn dead_actor_error() -> core::JsRuntimeError {
+    core::JsRuntimeError::UnexpectedError("the runtime thread has terminated".into())
 }
 impl Drop for RuntimeActor {
     fn drop(&mut self) {
@@ -208,12 +227,14 @@ mod tests {
         rt.add_logger(Box::new(move |msg: String| {
             tx1.send(msg).unwrap();
             false // 1 回だけ受信して終了
-        }));
+        }))
+        .unwrap();
         let (tx2, rx2) = channel();
         rt.add_logger(Box::new(move |msg: String| {
             tx2.send(msg).unwrap();
             true // 何回でも受信する
-        }));
+        }))
+        .unwrap();
         rt.compile("console.log('1');").unwrap();
         assert_eq!(rx1.try_recv().unwrap(), "1");
         assert_eq!(rx2.try_recv().unwrap(), "1");
