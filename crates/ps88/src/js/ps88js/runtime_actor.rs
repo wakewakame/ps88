@@ -72,10 +72,7 @@ impl RuntimeActor {
     pub fn add_logger(&self, logger: Box<dyn Fn(String) -> bool + Sync + Send>) {
         let (tx, rx) = channel();
         self.sender
-            .send(RuntimeActorMessage::AddLogger {
-                logger,
-                result: tx,
-            })
+            .send(RuntimeActorMessage::AddLogger { logger, result: tx })
             .unwrap();
         rx.recv().unwrap()
     }
