@@ -1,3 +1,6 @@
+mod background;
+
+use background::Background;
 use egui::{vec2, Color32, Pos2, Rect, Vec2};
 
 /// スタート画面で選択された操作
@@ -67,6 +70,8 @@ pub(super) struct StartState {
     bodies: Vec<SoftBody>,
     // bodies を作ったときの描画領域 (変化したら作り直す)
     area: Rect,
+    // 背景のジェネラティブアート
+    background: Background,
 }
 
 impl StartState {
@@ -74,6 +79,7 @@ impl StartState {
         Self {
             bodies: vec![],
             area: Rect::NOTHING,
+            background: Background::new(),
         }
     }
 }
@@ -86,7 +92,12 @@ pub(super) fn start_screen(ui: &mut egui::Ui, state: &mut StartState) -> Option<
     let rect = ui.max_rect();
     let response = ui.allocate_rect(rect, egui::Sense::click());
     let painter = ui.painter_at(rect);
+
+    // 1 フレームの時間が長すぎるとシミュレーションが発散するため上限を設ける
+    let (time, dt) = ui.input(|i| (i.time as f32, i.stable_dt.min(1.0 / 30.0)));
+
     painter.rect_filled(rect, 0.0, BACKGROUND);
+    state.background.draw(&painter, rect, time);
 
     // 画面の縦横比に応じてボタンを横並び・縦並びに切り替える
     // 隙間はボタンの幅の半分にする (中心間の距離はボタン 1.5 個分)
@@ -107,8 +118,6 @@ pub(super) fn start_screen(ui: &mut egui::Ui, state: &mut StartState) -> Option<
         ];
     }
 
-    // 1 フレームの時間が長すぎるとシミュレーションが発散するため上限を設ける
-    let (time, dt) = ui.input(|i| (i.time as f32, i.stable_dt.min(1.0 / 30.0)));
     let pointer = response.hover_pos();
 
     let mut action = None;
