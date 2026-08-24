@@ -15,12 +15,12 @@ pub(super) enum StartAction {
 }
 
 // 配色 (参考実装の白黒を反転している)
-const BACKGROUND: Color32 = Color32::from_rgb(0x11, 0x11, 0x11);
-const FILL: Color32 = Color32::from_rgb(0xcc, 0xcc, 0xcc);
-const STROKE: Color32 = Color32::from_rgb(0xaa, 0xaa, 0xaa);
-const TEXT: Color32 = Color32::from_rgb(0x11, 0x11, 0x11);
-const LINK: Color32 = Color32::from_rgb(0x55, 0x55, 0x55);
-const LINK_HOVER: Color32 = Color32::from_rgb(0xaa, 0xaa, 0xaa);
+const BACKGROUND: Color32 = Color32::from_gray(0x11);
+const FILL: Color32 = Color32::from_rgba_unmultiplied_const(0x11, 0x11, 0x11, 0x88);
+const STROKE: Color32 = Color32::from_gray(0xee);
+const TEXT: Color32 = Color32::from_gray(0xee);
+const LINK: Color32 = Color32::from_gray(0x55);
+const LINK_HOVER: Color32 = Color32::from_gray(0xaa);
 
 // ボタンの下に表示するリンク
 const LINK_URL: &str = "https://github.com/wakewakame/ps88";
@@ -49,6 +49,9 @@ struct Button {
     label: &'static str,
     // クリックされたときに返す操作
     action: StartAction,
+    // 枠の傾き[度]。互い違いに傾けて少し崩した見た目にしている
+    // (アイコンとラベルは読みやすさのため傾けない)
+    tilt: f32,
 }
 
 const BUTTONS: [Button; 2] = [
@@ -56,11 +59,13 @@ const BUTTONS: [Button; 2] = [
         icon: "\u{e2c8}", // folder_open
         label: "open .js file",
         action: StartAction::OpenFile,
+        tilt: 5.0,
     },
     Button {
         icon: "\u{e14f}", // content_paste
         label: "paste from browser",
         action: StartAction::Paste,
+        tilt: 5.0,
     },
 ];
 
@@ -112,10 +117,15 @@ pub(super) fn start_screen(ui: &mut egui::Ui, state: &mut StartState) -> Option<
     // 描画領域が変わったらボタンを配置し直す
     if state.area != rect {
         state.area = rect;
-        state.bodies = vec![
-            SoftBody::new(rect.center() - gap, side),
-            SoftBody::new(rect.center() + gap, side),
-        ];
+        state.bodies = BUTTONS
+            .iter()
+            .enumerate()
+            .map(|(i, button)| {
+                // 1 つ目を中心の手前側、2 つ目を奥側に置く
+                let offset = gap * (i as f32 * 2.0 - 1.0);
+                SoftBody::new(rect.center() + offset, side, button.tilt.to_radians())
+            })
+            .collect();
     }
 
     let pointer = response.hover_pos();
@@ -280,8 +290,12 @@ struct SoftBody {
 }
 
 impl SoftBody {
-    fn new(center: Pos2, side: f32) -> Self {
-        let rest = smooth_rect(center, side, side, side * 0.4, 0.9, CORNER_DIV);
+    // tilt: 図形の傾き[ラジアン]
+    fn new(center: Pos2, side: f32, tilt: f32) -> Self {
+        let rest = smooth_rect(center, side, side, side * 0.4, 0.9, CORNER_DIV)
+            .into_iter()
+            .map(|p| center + rotate(p - center, tilt))
+            .collect::<Vec<Pos2>>();
         let points = rest
             .iter()
             .map(|p| MassPoint {
@@ -363,6 +377,12 @@ fn bezier(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2, div: usize) -> Vec<Vec2> {
             p1 * (u * u * u) + p2 * (3.0 * u * u * t) + p3 * (3.0 * u * t * t) + p4 * (t * t * t)
         })
         .collect()
+}
+
+// ベクトルを任意の角度[ラジアン]だけ回転する
+fn rotate(v: Vec2, angle: f32) -> Vec2 {
+    let (sin, cos) = angle.sin_cos();
+    vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
 }
 
 // ベクトルを 90 度単位で回転する
