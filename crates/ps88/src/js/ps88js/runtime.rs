@@ -104,9 +104,11 @@ impl Runtime<'_> {
             let this = v8::undefined(scope).into();
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
-                callback.call(try_catch, this, &[ctx]).ok_or(
-                    core::JsRuntimeError::Runtime(core::report_exceptions(try_catch)),
-                )?;
+                callback
+                    .call(try_catch, this, &[ctx])
+                    .ok_or(core::JsRuntimeError::Runtime(core::report_exceptions(
+                        try_catch,
+                    )))?;
             }
 
             // 結果を audio, midi に書き戻す
@@ -154,9 +156,11 @@ impl Runtime<'_> {
             let this = v8::undefined(scope).into();
             {
                 let try_catch = &mut v8::TryCatch::new(scope);
-                callback.call(try_catch, this, &[ctx]).ok_or(
-                    core::JsRuntimeError::Runtime(core::report_exceptions(try_catch)),
-                )?;
+                callback
+                    .call(try_catch, this, &[ctx])
+                    .ok_or(core::JsRuntimeError::Runtime(core::report_exceptions(
+                        try_catch,
+                    )))?;
             }
 
             // 結果を shapes に書き戻す
