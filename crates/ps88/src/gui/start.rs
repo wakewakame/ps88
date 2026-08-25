@@ -16,11 +16,11 @@ pub(super) enum StartAction {
 
 // 配色 (参考実装の白黒を反転している)
 const BACKGROUND: Color32 = Color32::from_gray(0x11);
-const FILL: Color32 = Color32::from_rgba_unmultiplied_const(0x11, 0x11, 0x11, 0x88);
+const FILL: Color32 = Color32::from_rgba_unmultiplied_const(0x11, 0x11, 0x11, 0x99);
 const STROKE: Color32 = Color32::from_gray(0xee);
 const TEXT: Color32 = Color32::from_gray(0xee);
-const LINK: Color32 = Color32::from_gray(0x55);
-const LINK_HOVER: Color32 = Color32::from_gray(0xaa);
+const LINK: Color32 = Color32::from_gray(0xaa);
+const LINK_HOVER: Color32 = Color32::from_gray(0xee);
 
 // ボタンの下に表示するリンク
 const LINK_URL: &str = "https://github.com/wakewakame/ps88";
@@ -179,7 +179,7 @@ pub(super) fn start_screen(ui: &mut egui::Ui, state: &mut StartState) -> Option<
         );
     }
 
-    let font_size = (side * 0.07).clamp(9.0, 14.0);
+    let font_size = (side * 0.08).clamp(9.0, 20.0);
 
     // 一番下のボタンのすぐ下にリンクを表示する (side * 0.6 は円形に膨らんだときの半径)
     let link_clicked = text_button(
