@@ -12,6 +12,19 @@
         - ファイルが存在しなかったとしても特にエラーにはせず、パスの参照を解除するのみ
     - [ ] ホスト側の BPM と同期をとれるようにする
         - midi にそういう仕組みなかったっけ...?
+    - [ ] ノート以外の MIDI イベントも js に渡せるようにする
+        - 最優先はピッチベンド (ジョイスティックで音程を上下させるやつ)
+            - ついでに CC も対応させたい (モジュレーションホイールが CC1 で飛んでくるため)
+            - チャンネルプレッシャー / ポリプレッシャー / プログラムチェンジは対応デバイスが限られるので任意
+        - 現状 `MidiConfig::MidiCCs` なのでホストからは届いているが、`ps88/src/lib.rs` の `process` で `NoteOn`/`NoteOff` 以外は `_ => {}` で捨てている
+        - nih-plug の `MidiPitchBend` は `value: f32` が 0.0〜1.0 (0.5 がセンター)
+        - 修正が必要な箇所 (1 つ足すのも複数足すのも触る場所は同じなので、まとめてやった方が楽)
+            - `ps88/src/js/ps88js/status.rs` の `NoteEvent` にバリアントを追加
+            - `ps88/src/lib.rs` の `process` の入力側と書き戻し側の両方に分岐を追加
+            - **ps88web も一緒に修正すること**
+                - `src/controller/audio/AudioController.ts` の `parseMIDIMessage` (現状 `status` が `0x9`/`0x8` 以外は null を返している)
+                - `lib/ps88.d.ts` の `NoteEvent` 型 (ps88 側の enum と対になっているので、必ず両方揃える)
+                - `AudioController.test.ts` のテストも追加
     - [ ] js から envelope を読み書きできるようにする
         - envelope は 4 つ固定とする
         - js 側から任意の envelope を設定できるようにすることもできそうだけど、複雑になりそう
@@ -45,7 +58,7 @@
         - [ ] ブレークポイント/ステップ実行
         - [ ] Chrome のパフォーマンスプロファイラみたいなツール
     - [ ] テスト拡充
-    - [ ] README.md 等を英語にする
+    - [x] README.md 等を英語にする
         - 英語圏の方が人が多いので、多くの人に使ってもらえそう
     - [ ] GitHub Actions で CI 構築
     - [ ] チュートリアルのページを作る
