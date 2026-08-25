@@ -18,9 +18,9 @@ const CELL_SIZE: f32 = 30.0;
 
 // 地形 (fBm ノイズ)
 // 1px あたりのノイズ座標。小さいほど地形が大きい
-const NOISE_SCALE: f32 = 0.0001;
+const NOISE_SCALE: f32 = 0.0004;
 // fBm のオクターブ数
-const OCTAVES: usize = 2;
+const OCTAVES: usize = 1;
 // domain warp 用ノイズの周波数
 const WARP_SCALE: f32 = 0.0012;
 const WARP_OCTAVES: usize = 2;
@@ -33,8 +33,8 @@ const TIME_SCALE: f32 = 0.05;
 // 等高線の本数
 const LEVELS: usize = 20;
 // 高さの下端・上端 (fBm の値域は概ね ±0.5)
-const ISO_MIN: f32 = -0.45;
-const ISO_MAX: f32 = 0.45;
+const ISO_MIN: f32 = -1.0;
+const ISO_MAX: f32 = 1.0;
 
 // 描画
 // 低地・高地の色相
@@ -43,7 +43,7 @@ const HUE_END: f32 = 310.0;
 // 色相が 1 秒あたり回る量
 const HUE_DRIFT: f32 = 5.0;
 // 背景に沈ませるため彩度と明度は低めにしている
-const SATURATION: f32 = 0.40;
+const SATURATION: f32 = 1.0;
 const VALUE: f32 = 0.30;
 const ALPHA: f32 = 0.8;
 const LINE_WIDTH: f32 = 1.0;
