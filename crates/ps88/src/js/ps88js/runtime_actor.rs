@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 // Runtime は Sync, Send を持たないため、そのままでは複数スレッドから使うことはできない。
 // これを解決するため、Runtime を専用スレッドで動かしチャンネル経由でメソッド呼び出しを行うようにする。
 pub struct RuntimeActor {
-    handle: std::thread::JoinHandle<()>,
+    handle: Option<std::thread::JoinHandle<()>>,
     sender: Sender<RuntimeActorMessage>,
 
     // メソッドの引数は通常チャンネルで渡すが、サイズの大きいデータや参照型などは args 経由でやり取りする
@@ -63,7 +63,7 @@ impl RuntimeActor {
             }
         });
         Ok(Self {
-            handle,
+            handle: Some(handle),
             sender: tx,
             args,
         })
@@ -158,10 +158,13 @@ impl RuntimeActor {
 }
 impl Drop for RuntimeActor {
     fn drop(&mut self) {
+        // sender を drop してアクタースレッドの受信ループを終了させる
         let sender = std::mem::replace(&mut self.sender, std::sync::mpsc::channel().0);
         drop(sender);
-        let handle = std::mem::replace(&mut self.handle, std::thread::spawn(move || {}));
-        handle.join().unwrap();
+        // アクタースレッドが panic していた場合に二重 panic で abort しないよう、join の結果は無視する
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
