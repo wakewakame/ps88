@@ -31,9 +31,6 @@ impl RuntimeActor {
                         runtime.add_logger(logger);
                         result.send(()).unwrap();
                     }
-                    RuntimeActorMessage::Reset { result } => {
-                        result.send(runtime.reset()).unwrap();
-                    }
                     RuntimeActorMessage::Compile { code, result } => {
                         result.send(runtime.compile(&code)).unwrap();
                     }
@@ -76,13 +73,6 @@ impl RuntimeActor {
                 logger,
                 result: tx,
             })
-            .unwrap();
-        rx.recv().unwrap()
-    }
-    pub fn reset(&self) -> core::Result<()> {
-        let (tx, rx) = channel();
-        self.sender
-            .send(RuntimeActorMessage::Reset { result: tx })
             .unwrap();
         rx.recv().unwrap()
     }
@@ -174,9 +164,6 @@ enum RuntimeActorMessage {
     AddLogger {
         logger: Box<dyn Fn(String) -> bool + Sync + Send>,
         result: Sender<()>,
-    },
-    Reset {
-        result: Sender<core::Result<()>>,
     },
     Compile {
         code: String,
