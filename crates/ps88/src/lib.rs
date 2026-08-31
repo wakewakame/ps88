@@ -105,40 +105,9 @@ impl Plugin for PS88 {
         // イベントを取得
         let mut midi = Vec::<js::ps88js::NoteEvent>::new();
         while let Some(event) = context.next_event() {
-            match event {
-                NoteEvent::NoteOn {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    velocity,
-                } => {
-                    midi.push(js::ps88js::NoteEvent::NoteOn {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
-                    });
-                }
-                NoteEvent::NoteOff {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    velocity,
-                } => {
-                    midi.push(js::ps88js::NoteEvent::NoteOff {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
-                    });
-                }
-                // TODO: 他のイベントも処理する
-                _ => {}
-            };
+            if let Some(event) = note_event_to_js(event) {
+                midi.push(event);
+            }
         }
 
         // スクリプトを実行
@@ -158,41 +127,125 @@ impl Plugin for PS88 {
 
         // midi の内容を context に書き戻す
         for event in midi {
-            match event {
-                js::ps88js::NoteEvent::NoteOn {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    velocity,
-                } => {
-                    context.send_event(NoteEvent::NoteOn {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
-                    });
-                }
-                js::ps88js::NoteEvent::NoteOff {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    velocity,
-                } => {
-                    context.send_event(NoteEvent::NoteOff {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
-                    });
-                }
-            };
+            context.send_event(note_event_from_js(event));
         }
 
         ProcessStatus::Normal
+    }
+}
+
+// nih_plug の NoteEvent を JavaScript 側に渡す NoteEvent に変換する。
+// 未対応のイベントは None を返す。
+// TODO: 他のイベントも処理する
+fn note_event_to_js(event: NoteEvent<()>) -> Option<js::ps88js::NoteEvent> {
+    match event {
+        NoteEvent::NoteOn {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        } => Some(js::ps88js::NoteEvent::NoteOn {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        }),
+        NoteEvent::NoteOff {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        } => Some(js::ps88js::NoteEvent::NoteOff {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        }),
+        _ => None,
+    }
+}
+
+// JavaScript 側の NoteEvent を nih_plug の NoteEvent に変換する
+fn note_event_from_js(event: js::ps88js::NoteEvent) -> NoteEvent<()> {
+    match event {
+        js::ps88js::NoteEvent::NoteOn {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        } => NoteEvent::NoteOn {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        },
+        js::ps88js::NoteEvent::NoteOff {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        } => NoteEvent::NoteOff {
+            timing,
+            voice_id,
+            channel,
+            note,
+            velocity,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_note_event_conversion() {
+        // NoteOn / NoteOff は相互変換できる
+        let note_on = NoteEvent::<()>::NoteOn {
+            timing: 10,
+            voice_id: Some(1),
+            channel: 2,
+            note: 60,
+            velocity: 0.5,
+        };
+        let js_event = note_event_to_js(note_on).unwrap();
+        assert_eq!(
+            js_event,
+            js::ps88js::NoteEvent::NoteOn {
+                timing: 10,
+                voice_id: Some(1),
+                channel: 2,
+                note: 60,
+                velocity: 0.5,
+            }
+        );
+        assert_eq!(note_event_from_js(js_event), note_on);
+
+        let note_off = NoteEvent::<()>::NoteOff {
+            timing: 20,
+            voice_id: None,
+            channel: 3,
+            note: 61,
+            velocity: 0.25,
+        };
+        let js_event = note_event_to_js(note_off).unwrap();
+        assert_eq!(note_event_from_js(js_event), note_off);
+
+        // 未対応のイベントは None になる
+        let choke = NoteEvent::<()>::Choke {
+            timing: 0,
+            voice_id: None,
+            channel: 0,
+            note: 0,
+        };
+        assert_eq!(note_event_to_js(choke), None);
     }
 }
 
