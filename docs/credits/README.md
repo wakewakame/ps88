@@ -90,12 +90,42 @@ checksum = "1be76dd654024ee690864bea328622e912847461671cee0533ddf9a2cab4a31d"
 | `ISC` | 両立可能[^1] |
 | `MIT` | 両立可能[^1] |
 | `MPL-2.0` | 両立可能[^1] |
-| `OFL-1.1` | **GPLv3 互換ではない**[^1] ものの、 **OFL-1.1 ライセンスではないソフトウェア** に OFL ライセンスのフォントを埋め込むことは可能[^4][^5] であるため問題ない。 |
-| `Ubuntu-font-1.0` | **GPLv3 互換ではない** ものの、 **UFL-1.0 ライセンスではないソフトウェア** に UFL-1.0 ライセンスのフォントを埋め込むことは可能[^2][^3] であるため問題ない。 |
 | `Unicode-3.0` | 両立可能[^1] |
 | `Zlib` | 両立可能[^1] |
 
+GPLv3 と両立しないライセンスは含まれていません。
+
+なお egui のデフォルトフォントは `OFL-1.1` と `Ubuntu-font-1.0` を含むため、
+`egui/default_fonts` を無効化して依存から外しています。
+詳細は [#egui のデフォルトフォントについて](#egui-のデフォルトフォントについて) を参照してください。
+
 [^1]: Various Licenses and Comments about Them: https://www.gnu.org/licenses/license-list.html
+
+# egui のデフォルトフォントについて
+
+`crates/ps88/Cargo.toml` では `egui` の `default-features` を無効化しています。
+
+```toml
+egui = { version = "0.35.0", default-features = false }
+```
+
+egui のデフォルトフォント (`epaint_default_fonts`) は `OFL-1.1` と `Ubuntu-font-1.0`
+のフォントを含みます。どちらも **GPLv3 互換ではありません**。
+フォントの埋め込み自体はライセンス上可能[^2][^3][^4][^5] ですが、
+PS88 は描画に Roboto Mono (`Apache-2.0`) と Material Symbols (`Apache-2.0`) しか
+使っておらず、デフォルトフォントは `FontDefinitions` に読み込まれるだけで
+一度も使われていませんでした。
+
+そのため、不要なライセンス義務とバイナリサイズ (フォント 4 種で約 1.4 MB) を
+避ける目的で依存から外しています。
+
+egui 0.35 の `default` フィーチャは `default_fonts` のみなので、
+`default-features = false` で他に失われるものはありません。
+
+`FontDefinitions::default()` は `default_fonts` が無効だと空を返しますが、
+`crates/ps88/src/gui/editor.rs` では `families` をクリアした上で自前のフォントを
+登録しているため影響はありません。
+
 [^2]: Ubuntu font licence: https://ubuntu.com/legal/font-licence
 [^3]: Ubuntu Font Family Licensing FAQ: https://ubuntu.com/legal/font-licence/faq
 [^4]: The SIL Open Font License FAQ: https://openfontlicense.org/ofl-faq/

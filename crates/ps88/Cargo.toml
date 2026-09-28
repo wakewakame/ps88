@@ -15,7 +15,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 roboto-mono = { workspace = true }
 material-design-icons = { workspace = true }
-egui = { version = "0.35.0", features = ["default_fonts"] }
+egui = { version = "0.35.0", default-features = false }
 nice-plug = { git = "https://codeberg.org/RustAudio/nice-plug.git", rev = "42f480568d383632bbcb2f29d0e4349b93566432", features = ["assert_process_allocs", "standalone"] }
 nice-plug-egui = { git = "https://codeberg.org/RustAudio/nice-plug.git", rev = "42f480568d383632bbcb2f29d0e4349b93566432", default-features = false, features = ["opengl"] }
 serde = { version = "1", features = ["derive"] }
