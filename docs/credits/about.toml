@@ -1,4 +1,3 @@
-no-clearly-defined = true
 accepted = [
     "Apache-2.0",
     "BSD-1-Clause",
@@ -7,15 +6,16 @@ accepted = [
     "CC0-1.0",
     "GPL-3.0",
     "ISC",
-    "LicenseRef-UFL-1.0",
     "MIT",
+    "MPL-2.0",
     "OFL-1.1",
+    "Ubuntu-font-1.0",
     "Unicode-3.0",
     "Zlib",
 ]
 
-[vst3-sys.clarify]
-license = "GPL-3.0"
-[[vst3-sys.clarify.files]]
-path = "license.md"
-checksum = "1be76dd654024ee690864bea328622e912847461671cee0533ddf9a2cab4a31d"
+# PS88 自身とワークスペース内のクレートもクレジットに含める。
+# cargo-about のデフォルトも false だが、これを true にすると PS88 自身の
+# GPLv3 全文が出力から抜け落ちてしまうため、意図を明示する目的で明記している。
+[private]
+ignore = false
