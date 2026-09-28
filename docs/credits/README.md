@@ -7,12 +7,15 @@
 Credits (ライセンス一覧) は以下のコマンドで生成できます。
 
 ```sh
-cargo install --locked cargo-about
+cargo install --locked cargo-about@0.9.1
 cargo about generate -m ../../crates/ps88/Cargo.toml -o licenses.html about.hbs
 ```
 
 成功すると `licenses.html` が生成されます。
-(cargo-about 0.9.1 で動作確認済み)
+
+cargo-about はマイナーバージョンの更新で `about.toml` の設定項目やライセンスの
+識別子が変わることがあるため、バージョンを固定しています。
+更新する際は `about.toml` の追従も必要になる可能性があります。
 
 ## 出力に含まれる範囲
 
