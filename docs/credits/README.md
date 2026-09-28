@@ -8,14 +8,31 @@ Credits (ライセンス一覧) は以下のコマンドで生成できます。
 
 ```sh
 cargo install --locked cargo-about@0.9.1
+
+# プログラムに埋め込まれるテキスト版 (リポジトリにコミットする)
+cargo about generate -m ../../crates/ps88/Cargo.toml -o ../../crates/ps88/assets/credits.txt credits.txt.hbs
+
+# 目視確認用の HTML 版 (コミットしない)
 cargo about generate -m ../../crates/ps88/Cargo.toml -o licenses.html about.hbs
 ```
 
-成功すると `licenses.html` が生成されます。
+**`Cargo.lock` を更新したら `credits.txt` を再生成してコミットしてください。**
+`credits.txt` は `crates/ps88/src/gui/editor.rs` から `include_str!` で埋め込まれ、
+プラグインの licenses 画面に表示されます。
+依存が変わったのに再生成し忘れると、配布物のライセンス表記が実際の依存とずれます。
+
+`licenses.html` はリンクや見出しがあり確認しやすいので、
+ライセンスの中身を人が読みたいときに使います。こちらは `.gitignore` 済みです。
 
 cargo-about はマイナーバージョンの更新で `about.toml` の設定項目やライセンスの
 識別子が変わることがあるため、バージョンを固定しています。
 更新する際は `about.toml` の追従も必要になる可能性があります。
+
+## テンプレートを書くときの注意
+
+handlebars の `{{value}}` は HTML エスケープされるため、テキスト版のテンプレートでは
+`{{{value}}}` (三重括弧) を使う必要があります。
+`{{value}}` のままだと `&lt;https://fsf.org/&gt;` のような出力になります。
 
 ## 出力に含まれる範囲
 

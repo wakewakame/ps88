@@ -150,25 +150,37 @@ pub fn editor(
                 return;
             }
 
-            // 依存ライブラリのライセンス一覧
+            // PS88 自身と依存ライブラリのライセンス一覧
             if state.scene == Scene::Licenses {
-                let licenses = licenses();
+                let lines = licenses();
                 tool_bar(ui, |ui| {
                     if ui.button("\u{e5c4}back").clicked() {
                         state.scene = Scene::Start;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                         if ui.button("\u{e14d}copy").clicked() {
-                            copy_text(&licenses);
+                            copy_text(LICENSES);
                         }
                     });
                 });
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().inner_margin(egui::Margin::same(MARGIN)))
                     .show(ui, |ui| {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.label(egui::RichText::new(licenses.as_str()).monospace());
-                        });
+                        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+                        // ライセンス本文には 1000 文字を超える行があるため折り返さず、
+                        // 横スクロールで読む形にしている。
+                        // 折り返さないことで行の高さが揃うため show_rows が使える。
+                        egui::ScrollArea::both().show_rows(
+                            ui,
+                            row_height,
+                            lines.len(),
+                            |ui, rows| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                for line in &lines[rows] {
+                                    ui.label(egui::RichText::new(*line).monospace());
+                                }
+                            },
+                        );
                     });
                 return;
             }
@@ -307,19 +319,16 @@ fn tool_bar(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
         });
 }
 
-// 依存ライブラリのライセンス一覧
-// TODO: 実際のライセンス一覧に差し替える
-fn licenses() -> String {
-    (1..=100)
-        .map(|i| {
-            // 折り返しや横スクロールの確認のため、行ごとに長さを変えている
-            format!(
-                "{i:03}: {}",
-                "TODO: show dependency licenses here. ".repeat(i % 5 + 1)
-            )
-        })
-        .collect::<Vec<String>>()
-        .join("\n")
+// PS88 自身と依存ライブラリのライセンス一覧
+// cargo about で生成したものを埋め込んでいる (生成方法は docs/credits/README.md を参照)
+const LICENSES: &str = include_str!("../../assets/credits.txt");
+
+// LICENSES を行ごとに分割したもの
+// 1 万行近くあり、まとめて 1 つの Label にすると表示のたびに全行のレイアウトが
+// 走ってしまうため、表示範囲の行だけを描けるように行単位で持っておく
+fn licenses() -> &'static [&'static str] {
+    static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    LINES.get_or_init(|| LICENSES.lines().collect())
 }
 
 // クリップボードに文字列をコピーする
