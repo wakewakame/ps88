@@ -152,7 +152,7 @@ pub fn editor(
 
             // PS88 自身と依存ライブラリのライセンス一覧
             if state.scene == Scene::Licenses {
-                let lines = licenses();
+                let licenses = licenses();
                 tool_bar(ui, |ui| {
                     if ui.button("\u{e5c4}back").clicked() {
                         state.scene = Scene::Start;
@@ -166,21 +166,36 @@ pub fn editor(
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().inner_margin(egui::Margin::same(MARGIN)))
                     .show(ui, |ui| {
+                        let font = egui::TextStyle::Monospace.resolve(ui.style());
                         let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+                        // 最長行を実際にレイアウトしてコンテンツ幅を求める
+                        // (galley は egui 側でキャッシュされるため毎フレーム計算しても安い)
+                        let content_width = ui
+                            .painter()
+                            .layout_no_wrap(
+                                licenses.longest.to_string(),
+                                font,
+                                egui::Color32::PLACEHOLDER,
+                            )
+                            .size()
+                            .x;
                         // ライセンス本文には 1000 文字を超える行があるため折り返さず、
                         // 横スクロールで読む形にしている。
                         // 折り返さないことで行の高さが揃うため show_rows が使える。
-                        egui::ScrollArea::both().show_rows(
-                            ui,
-                            row_height,
-                            lines.len(),
-                            |ui, rows| {
+                        egui::ScrollArea::both()
+                            // 既定では ScrollArea が中身に合わせて縮むため、
+                            // 縦スクロールバーがテキストの右端に貼り付いてしまう
+                            .auto_shrink([false, false])
+                            .show_rows(ui, row_height, licenses.lines.len(), |ui, rows| {
+                                // show_rows は表示範囲の行しかレイアウトしないため、
+                                // 幅を明示しないと横スクロールの範囲が縦スクロールに
+                                // つれて変わってしまう
+                                ui.set_min_width(content_width);
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                                for line in &lines[rows] {
+                                for line in &licenses.lines[rows] {
                                     ui.label(egui::RichText::new(*line).monospace());
                                 }
-                            },
-                        );
+                            });
                     });
                 return;
             }
@@ -323,12 +338,29 @@ fn tool_bar(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
 // cargo about で生成したものを埋め込んでいる (生成方法は docs/credits/README.md を参照)
 const LICENSES: &str = include_str!("../../assets/credits.txt");
 
-// LICENSES を行ごとに分割したもの
-// 1 万行近くあり、まとめて 1 つの Label にすると表示のたびに全行のレイアウトが
-// 走ってしまうため、表示範囲の行だけを描けるように行単位で持っておく
-fn licenses() -> &'static [&'static str] {
-    static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
-    LINES.get_or_init(|| LICENSES.lines().collect())
+pub struct Licenses {
+    // LICENSES を行ごとに分割したもの
+    // 1 万行近くあり、まとめて 1 つの Label にすると表示のたびに全行のレイアウトが
+    // 走ってしまうため、表示範囲の行だけを描けるように行単位で持っておく
+    lines: Vec<&'static str>,
+    // 最も文字数の多い行
+    // show_rows は表示範囲の行しかレイアウトしないため、何もしないとコンテンツの
+    // 幅が「今見えている行の最大幅」になり、横スクロールの範囲が縦スクロールに
+    // つれて変わってしまう。この行の幅をコンテンツ幅の下限にして固定する
+    longest: &'static str,
+}
+
+fn licenses() -> &'static Licenses {
+    static LICENSES_CACHE: std::sync::OnceLock<Licenses> = std::sync::OnceLock::new();
+    LICENSES_CACHE.get_or_init(|| {
+        let lines: Vec<&'static str> = LICENSES.lines().collect();
+        let longest = lines
+            .iter()
+            .copied()
+            .max_by_key(|line| line.chars().count())
+            .unwrap_or("");
+        Licenses { lines, longest }
+    })
 }
 
 // クリップボードに文字列をコピーする
