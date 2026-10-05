@@ -1,0 +1,26 @@
+{{!-- cargo about generate で credits.txt を生成するためのテンプレート。
+      出力はプラグインの licenses 画面にそのまま表示されるため、
+      開発者向けの注意書きは出力に含めずこのコメントに書く。
+      なお {{value}} は HTML エスケープされるため {{{value}}} を使う必要がある。 --}}
+PS88 - Third Party Licenses
+
+This file lists the licenses of PS88 itself and of all the libraries it uses.
+
+Overview:
+{{#each overview}}
+  - {{{name}}} ({{count}})
+{{/each}}
+
+{{#each licenses}}
+================================================================================
+{{{name}}} ({{{id}}})
+================================================================================
+
+Used by:
+{{#each used_by}}
+  - {{{crate.name}}} {{{crate.version}}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

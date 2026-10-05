@@ -130,11 +130,9 @@ impl<'a, T: This<'a>> ApiTrait<'a> for Api<'a, T> {
                 .build(scope);
             obj_t.set(name.into(), func.into());
         }
-        let obj = obj_t
-            .new_instance(scope)
-            .ok_or(JsRuntimeError::Unexpected(
-                "failed to create api object".into(),
-            ))?;
+        let obj = obj_t.new_instance(scope).ok_or(JsRuntimeError::Unexpected(
+            "failed to create api object".into(),
+        ))?;
         let name = v8str(scope, &self.name)?;
         context.global(scope).set(scope, name.into(), obj.into());
         Ok(())

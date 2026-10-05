@@ -4,14 +4,15 @@
 
 # Credits の生成方法
 
-Credits (依存ライブラリのライセンス一覧) は以下のコマンドで生成できます。
+Credits (ライセンス一覧) は以下のコマンドで生成できます。
 
 ```sh
-cargo install --locked cargo-about
-cargo about generate -m ../../crates/ps88/Cargo.toml -o licenses.html about.hbs
+cargo install --locked cargo-about@0.9.1
+cargo about generate -m ../../crates/ps88/Cargo.toml -o ../../crates/ps88/assets/credits.txt credits.txt.hbs
 ```
 
-成功すると `licenses.html` が生成されます。
+`credits.txt` は `crates/ps88/src/gui/editor.rs` から `include_str!` で埋め込まれ、プラグインの licenses 画面に表示されます。
+`Cargo.lock` を更新したら再生成してコミットしてください。
 
 ## エラーが出る場合
 
@@ -19,7 +20,7 @@ cargo about generate -m ../../crates/ps88/Cargo.toml -o licenses.html about.hbs
 
 エラーが出たライセンスを `about.toml` の `accepted` に追加することで解消できます。
 ただし、 `accepted` に追加しようとするライセンスが問題なく使えるものかどうかを確認する必要があります。
-ライセンス追加時には [#依存ライブラリのライセンス一覧](#依存ライブラリのライセンス一覧) も併せて修正ください。
+ライセンス追加時には [#ライセンス一覧](#ライセンス一覧) も併せて修正ください。
 
 ### `unable to parse license expression for 'vst3-sys 0.1.0': GPLv3`
 
@@ -29,9 +30,9 @@ cargo about generate -m ../../crates/ps88/Cargo.toml -o licenses.html about.hbs
 例:
 
 ```
-[vst3-sysa.clarify]
+[vst3-sys.clarify]
 license = "GPL-3.0"
-[[vst3-sysa.clarify.files]]
+[[vst3-sys.clarify.files]]
 path = "license.md"
 checksum = "1be76dd654024ee690864bea328622e912847461671cee0533ddf9a2cab4a31d"
 ```
@@ -40,29 +41,36 @@ checksum = "1be76dd654024ee690864bea328622e912847461671cee0533ddf9a2cab4a31d"
 
 [cargo-about Config](https://embarkstudios.github.io/cargo-about/cli/generate/config.html) を参照
 
-# 依存ライブラリのライセンス一覧
+# ライセンス一覧
 
-本プログラムのライセンスは GPLv3 ですが、依存ライブラリに GPLv3 と両立しないライセンスが含まれていないかを確認します。
+PS88 のライセンスは MIT です。
+依存ライブラリに、配布を妨げる条件を持つライセンスが含まれていないかを確認します。
 
-以下は依存ライブラリのライセンス一覧です。
+以下は生成された Credits に含まれるライセンスの一覧です。
+`MIT` には PS88 自身も含まれます。
 
-| license | GPLv3 と両立可能か |
+| license | 備考 |
 | ---- | ---- |
-| `Apache-2.0` | 両立可能[^1] |
-| `BSD-1-Clause` | `BSD-3-Clause` とほとんど同じ内容のため、おそらく両立可能。 |
-| `BSD-3-Clause` | 両立可能[^1] |
-| `BSL-1.0` | 両立可能[^1] |
-| `CC0-1.0` | 両立可能[^1] |
-| `GPL-3.0` | 両立可能[^1] |
-| `ISC` | 両立可能[^1] |
-| `LicenseRef-UFL-1.0` | **GPLv3 互換ではない** ものの、 **UFL-1.0 ライセンスではないソフトウェア** に UFL-1.0 ライセンスのフォントを埋め込むことは可能[^2][^3] であるため問題ない。 |
-| `MIT` | 両立可能[^1] |
-| `OFL-1.1` | **GPLv3 互換ではない**[^1] ものの、 **OFL-1.1 ライセンスではないソフトウェア** に OFL ライセンスのフォントを埋め込むことは可能[^4][^5] であるため問題ない。 |
-| `Unicode-3.0` | 両立可能[^1] |
-| `Zlib` | 両立可能[^1] |
+| `Apache-2.0` | permissive。特許許諾あり |
+| `BSD-1-Clause` | permissive。 OSI 承認済み |
+| `BSD-3-Clause` | permissive |
+| `BSL-1.0` | permissive |
+| `CC0-1.0` | パブリックドメイン宣言。特許ライセンスを付与しないため、 FSF はソフトウェアへの使用を非推奨としている[^1] |
+| `ISC` | permissive |
+| `MIT` | permissive。 PS88 自身のライセンス |
+| `MPL-2.0` | **ファイル単位のコピーレフト。**元々 MPL だったファイルは MPL のままにする必要がある |
+| `Unicode-3.0` | permissive。 OSI 承認済み |
+| `Zlib` | permissive |
+
+いずれも著作権表記の同梱を求めるだけで、 PS88 を MIT で配布することを妨げません。
+表記は `credits.txt` を埋め込むことで満たしています。
+
+egui のデフォルトフォントは `OFL-1.1` と `Ubuntu-font-1.0` を含むため、 `crates/ps88/Cargo.toml` で `egui` の `default-features` を無効化して依存から外しています。
+描画には Roboto Mono と Material Symbols しか使っていないため影響はありません。
+
+`crates/ps88/LICENSE` はリポジトリ直下の `LICENSE` のコピーです。
+cargo-about はクレートのディレクトリ内からライセンスファイルを探すため、これが無いと MIT の
+雛形が使われて `Copyright (c) <year> <copyright holders>` のまま出力されてしまいます。
+重複して見えますが削除しないでください。
 
 [^1]: Various Licenses and Comments about Them: https://www.gnu.org/licenses/license-list.html
-[^2]: Ubuntu font licence: https://ubuntu.com/legal/font-licence
-[^3]: Ubuntu Font Family Licensing FAQ: https://ubuntu.com/legal/font-licence/faq
-[^4]: The SIL Open Font License FAQ: https://openfontlicense.org/ofl-faq/
-[^5]: SIL Open Font License and GPL: https://github.com/FortAwesome/Font-Awesome/issues/1124
