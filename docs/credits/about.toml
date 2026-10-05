@@ -4,7 +4,6 @@ accepted = [
     "BSD-3-Clause",
     "BSL-1.0",
     "CC0-1.0",
-    "GPL-3.0-or-later",
     "ISC",
     "MIT",
     "MPL-2.0",
@@ -14,6 +13,6 @@ accepted = [
 
 # PS88 自身とワークスペース内のクレートもクレジットに含める。
 # cargo-about のデフォルトも false だが、これを true にすると PS88 自身の
-# GPLv3 全文が出力から抜け落ちてしまうため、意図を明示する目的で明記している。
+# 著作権表記が出力から抜け落ちてしまうため、意図を明示する目的で明記している。
 [private]
 ignore = false
