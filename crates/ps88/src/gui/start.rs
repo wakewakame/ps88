@@ -63,7 +63,7 @@ const BUTTONS: [Button; 2] = [
     },
     Button {
         icon: "\u{e14f}", // content_paste
-        label: "paste from browser",
+        label: "paste code",
         action: StartAction::Paste,
         tilt: 5.0,
     },

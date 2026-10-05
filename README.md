@@ -14,7 +14,8 @@ It runs in both the browser and as a VST3 plugin.
 
 # Usage
 
-To play a 440 Hz sine wave, write code like the example below.
+PS88 is mainly intended to be used by pasting code that you or someone else created in [ps88web](https://wakewakame.github.io/ps88web) into the plugin.
+For example, to play a 440 Hz sine wave, copy the following and click `paste code`.
 
 ```js
 // Elapsed time in seconds
