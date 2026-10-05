@@ -3,7 +3,7 @@ name = "ps88"
 version.workspace = true
 edition.workspace = true
 authors = ["Taiki Yoshii"]
-license = "GPL-3.0"
+license = "GPL-3.0-or-later"
 
 keywords = ["synthesizer", "clap", "vst3"]
 description = "A programmable synthesizer"
